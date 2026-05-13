@@ -10,6 +10,8 @@ export const config = {
   port: Number(process.env.PORT ?? 3000),
   publicBaseUrl: process.env.PUBLIC_BASE_URL ?? '',
   openaiApiKey: process.env.OPENAI_API_KEY ?? '',
+  geminiApiKey: process.env.GEMINI_API_KEY ?? '',
+  geminiModel: process.env.GEMINI_MODEL ?? 'gemini-2.5-flash',
   recordingsDir: path.resolve(rootDir, process.env.RECORDINGS_DIR ?? './recordings'),
   outputDir: path.resolve(rootDir, process.env.OUTPUT_DIR ?? './outputs'),
   ffmpegPath: process.env.FFMPEG_PATH ?? 'ffmpeg',
@@ -20,5 +22,12 @@ export const config = {
     accountSid: process.env.TWILIO_ACCOUNT_SID ?? '',
     authToken: process.env.TWILIO_AUTH_TOKEN ?? '',
     fromNumber: process.env.TWILIO_FROM_NUMBER ?? ''
+  },
+  telegram: {
+    botToken: process.env.TELEGRAM_BOT_TOKEN ?? '',
+    allowedChatIds: (process.env.TELEGRAM_ALLOWED_CHAT_IDS ?? '')
+      .split(',')
+      .map((id) => id.trim())
+      .filter(Boolean)
   }
 };

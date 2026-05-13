@@ -12,10 +12,11 @@ function twilioClient() {
   return twilio(accountSid, authToken);
 }
 
-export async function dialConference({ to, digits = '', title = 'phone-conference' }) {
+export async function dialConference({ to, digits = '', title = 'phone-conference', notifyChatId = '' }) {
   const client = twilioClient();
   const encodedTitle = encodeURIComponent(title);
   const encodedDigits = encodeURIComponent(digits);
+  const encodedNotifyChatId = encodeURIComponent(notifyChatId);
 
   return client.calls.create({
     to,
@@ -23,7 +24,7 @@ export async function dialConference({ to, digits = '', title = 'phone-conferenc
     url: `${config.publicBaseUrl}/twilio/conference-twiml?title=${encodedTitle}&digits=${encodedDigits}`,
     record: true,
     recordingChannels: 'mono',
-    recordingStatusCallback: `${config.publicBaseUrl}/twilio/recording?title=${encodedTitle}`,
+    recordingStatusCallback: `${config.publicBaseUrl}/twilio/recording?title=${encodedTitle}&notifyChatId=${encodedNotifyChatId}`,
     recordingStatusCallbackEvent: ['completed']
   });
 }

@@ -3,6 +3,7 @@ import fsp from 'node:fs/promises';
 import OpenAI from 'openai';
 import { config } from '../config.js';
 import { outputPath } from '../utils/files.js';
+import { summarizeWithGemini } from './geminiSummary.js';
 
 function client() {
   if (!config.openaiApiKey) {
@@ -63,7 +64,11 @@ export async function summarizeTranscript(transcriptText, { title = 'meeting' } 
 export async function processRecording(filePath, options = {}) {
   const { transcript, transcriptPath } = await transcribeRecording(filePath, options);
   const text = transcript.text ?? JSON.stringify(transcript);
-  const { summary, summaryPath } = await summarizeTranscript(text, options);
+  const provider = options.summaryProvider ?? 'gemini';
+  const { summary, summaryPath } =
+    provider === 'openai'
+      ? await summarizeTranscript(text, options)
+      : await summarizeWithGemini(text, options);
 
   return {
     transcriptPath,

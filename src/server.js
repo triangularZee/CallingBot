@@ -8,6 +8,7 @@ import { ensureDirs, recordingPath } from './utils/files.js';
 import { processRecording } from './pipeline/openaiPipeline.js';
 import { runZoomBot } from './zoom/zoomBot.js';
 import { dialConference } from './call/twilioCallBot.js';
+import { sendTelegramMessage } from './telegram/notify.js';
 
 await ensureDirs();
 
@@ -70,6 +71,7 @@ app.post('/twilio/recording', async (req, res) => {
 
   try {
     const title = String(req.query.title ?? 'phone-conference');
+    const notifyChatId = String(req.query.notifyChatId ?? '');
     const recordingUrl = req.body.RecordingUrl;
     if (!recordingUrl) return;
 
@@ -87,11 +89,25 @@ app.post('/twilio/recording', async (req, res) => {
     await fs.writeFile(filePath, bytes);
 
     const result = await processRecording(filePath, { title });
+    const resultPath = path.join(config.outputDir, `${req.body.CallSid ?? Date.now()}-twilio-result.json`);
     await fs.writeFile(
-      path.join(config.outputDir, `${req.body.CallSid ?? Date.now()}-twilio-result.json`),
+      resultPath,
       JSON.stringify({ filePath, ...result }, null, 2),
       'utf8'
     );
+
+    if (notifyChatId) {
+      await sendTelegramMessage(
+        notifyChatId,
+        [
+          `*${title}*`,
+          '',
+          result.summary.slice(0, 3800),
+          '',
+          result.summary.length > 3800 ? `요약이 길어 일부만 전송했습니다. 파일: ${result.summaryPath}` : `파일: ${result.summaryPath}`
+        ].join('\n')
+      );
+    }
   } catch (error) {
     console.error('Twilio recording processing failed:', error);
   }

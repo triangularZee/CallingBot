@@ -3,7 +3,8 @@
 Two bot flows live in this repo:
 
 - `zoom`: joins a Zoom meeting as a visible participant and records configured system audio with `ffmpeg`.
-- `call`: dials into a phone conference through Twilio, sends optional DTMF digits, records the call leg, then transcribes and summarizes the recording.
+- `call`: dials into a phone conference through Twilio, sends optional DTMF digits without a spoken prompt, records the call leg, then transcribes and summarizes the recording.
+- `telegram`: accepts a conference dial-in number and DTMF/passcode from Telegram, starts the Twilio call, and sends back the Gemini summary.
 
 This MVP assumes the bot is allowed to join the meeting normally. It does not bypass waiting rooms, passwords, SDK restrictions, or host/platform controls.
 
@@ -60,6 +61,60 @@ npm run call -- --to "+18005551234" --digits "ww123456#ww7890#" --title "board-c
 ```
 
 The `digits` string uses Twilio DTMF syntax. `w` waits briefly, `#` is pound.
+
+The call flow does not speak a greeting. It only waits, presses the configured DTMF digits, stays connected, records the call, transcribes it, and summarizes it with Gemini.
+
+## Telegram Bot
+
+Required `.env` values:
+
+```env
+OPENAI_API_KEY=...
+GEMINI_API_KEY=...
+TWILIO_ACCOUNT_SID=...
+TWILIO_AUTH_TOKEN=...
+TWILIO_FROM_NUMBER=+19206682520
+PUBLIC_BASE_URL=https://your-ngrok-or-domain.example
+TELEGRAM_BOT_TOKEN=...
+TELEGRAM_ALLOWED_CHAT_IDS=
+```
+
+Run the webhook server in one terminal:
+
+```powershell
+npm start
+```
+
+Run Telegram long polling in another terminal:
+
+```powershell
+npm run telegram
+```
+
+Send this to the Telegram bot:
+
+```text
+/call
+to=+18005551234
+meeting=123456789
+password=987654
+title=251212_FY4Q25 Broadcom
+```
+
+Or provide exact DTMF:
+
+```text
+/call
+to=+18005551234
+digits=ww123456789#ww987654#
+title=251212_FY4Q25 Broadcom
+```
+
+The summary format is optimized for earnings-call notes:
+
+- numbered Korean takeaways
+- full `[Q&A]` section with every `Qn)` and `An)` separated by a blank line
+- `[Implication]` section with analyst-style bullets
 
 ## API
 
