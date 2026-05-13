@@ -29,7 +29,7 @@ export async function transcribeRecording(filePath, { title = 'meeting', languag
   };
 }
 
-export async function summarizeTranscript(transcriptText, { title = 'meeting' } = {}) {
+export async function summarizeTranscript(transcriptText, { title = 'meeting', note = '' } = {}) {
   const openai = client();
   const response = await openai.chat.completions.create({
     model: 'gpt-4o-mini',
@@ -39,13 +39,21 @@ export async function summarizeTranscript(transcriptText, { title = 'meeting' } 
         content: [
           'You summarize meeting transcripts into concise Korean notes.',
           'Return Markdown only.',
-          'Include sections: 핵심 요약, 결정사항, 액션 아이템, 리스크/질문, 후속 메모.',
+          'Include the user note as context when it is provided.',
           'If information is missing, say 확인 필요 instead of inventing details.'
         ].join(' ')
       },
       {
         role: 'user',
-        content: `회의 제목: ${title}\n\n녹취록:\n${transcriptText}`
+        content: [
+          `통화 제목: ${title}`,
+          '',
+          '사용자 메모:',
+          note || '(없음)',
+          '',
+          '녹취록:',
+          transcriptText
+        ].join('\n')
       }
     ],
     temperature: 0.2

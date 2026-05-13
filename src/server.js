@@ -25,13 +25,15 @@ if (config.telegram.botToken) {
 
 const zoomSchema = z.object({
   joinUrl: z.string().url(),
-  title: z.string().default('zoom-meeting')
+  title: z.string().default('zoom-meeting'),
+  note: z.string().default('')
 });
 
 const callSchema = z.object({
   to: z.string().min(5),
   digits: z.string().default(''),
   title: z.string().default('phone-conference'),
+  note: z.string().default(''),
   notifyChatId: z.string().default('')
 });
 
@@ -79,6 +81,7 @@ app.post('/twilio/recording', async (req, res) => {
 
   try {
     const title = String(req.query.title ?? 'phone-conference');
+    const note = String(req.query.note ?? '');
     const notifyChatId = String(req.query.notifyChatId ?? '');
     const recordingUrl = req.body.RecordingUrl;
     if (!recordingUrl) return;
@@ -96,11 +99,11 @@ app.post('/twilio/recording', async (req, res) => {
     const bytes = Buffer.from(await audioResponse.arrayBuffer());
     await fs.writeFile(filePath, bytes);
 
-    const result = await processRecording(filePath, { title });
+    const result = await processRecording(filePath, { title, note });
     const resultPath = path.join(config.outputDir, `${req.body.CallSid ?? Date.now()}-twilio-result.json`);
     await fs.writeFile(
       resultPath,
-      JSON.stringify({ filePath, ...result }, null, 2),
+      JSON.stringify({ filePath, title, note, ...result }, null, 2),
       'utf8'
     );
 
