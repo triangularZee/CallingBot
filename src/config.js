@@ -10,7 +10,7 @@ export const config = {
   port: Number(process.env.PORT ?? 3000),
   publicBaseUrl: process.env.PUBLIC_BASE_URL ?? '',
   openaiApiKey: process.env.OPENAI_API_KEY ?? '',
-  geminiApiKey: process.env.GEMINI_API_KEY ?? '',
+  geminiApiKey: process.env.GEMINI_API_KEY ?? process.env.GOOGLE_AI_API_KEY ?? '',
   geminiModel: process.env.GEMINI_MODEL ?? 'gemini-2.5-flash',
   recordingsDir: path.resolve(rootDir, process.env.RECORDINGS_DIR ?? './recordings'),
   outputDir: path.resolve(rootDir, process.env.OUTPUT_DIR ?? './outputs'),
@@ -25,7 +25,7 @@ export const config = {
   },
   telegram: {
     botToken: process.env.TELEGRAM_BOT_TOKEN ?? '',
-    allowedChatIds: (process.env.TELEGRAM_ALLOWED_CHAT_IDS ?? '')
+    allowedChatIds: (process.env.TELEGRAM_ALLOWED_CHAT_IDS ?? process.env.TELEGRAM_CHAT_ID ?? '')
       .split(',')
       .map((id) => id.trim())
       .filter(Boolean)
