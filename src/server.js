@@ -31,7 +31,8 @@ const zoomSchema = z.object({
 const callSchema = z.object({
   to: z.string().min(5),
   digits: z.string().default(''),
-  title: z.string().default('phone-conference')
+  title: z.string().default('phone-conference'),
+  notifyChatId: z.string().default('')
 });
 
 app.get('/health', (_req, res) => {
