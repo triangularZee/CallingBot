@@ -3,18 +3,25 @@ import twilio from 'twilio';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
+import { webhookCallback } from 'grammy';
 import { config } from './config.js';
 import { ensureDirs, recordingPath } from './utils/files.js';
 import { processRecording } from './pipeline/openaiPipeline.js';
 import { runZoomBot } from './zoom/zoomBot.js';
 import { dialConference } from './call/twilioCallBot.js';
 import { sendTelegramMessage } from './telegram/notify.js';
+import { createTelegramBot } from './telegram/createBot.js';
 
 await ensureDirs();
 
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
+
+if (config.telegram.botToken) {
+  const telegramBot = createTelegramBot();
+  app.use('/telegram/webhook', webhookCallback(telegramBot, 'express'));
+}
 
 const zoomSchema = z.object({
   joinUrl: z.string().url(),

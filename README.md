@@ -87,10 +87,17 @@ Run the webhook server in one terminal:
 npm start
 ```
 
-Run Telegram long polling in another terminal:
+For local long polling, run Telegram in another terminal:
 
 ```powershell
 npm run telegram
+```
+
+If another process is already using the same bot token, prefer webhook mode:
+
+```powershell
+npm start
+npm run telegram:set-webhook
 ```
 
 Send this to the Telegram bot:

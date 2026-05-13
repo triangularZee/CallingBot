@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node src/server.js",
     "telegram": "node src/telegram/bot.js",
+    "telegram:set-webhook": "node src/telegram/setWebhook.js",
     "zoom": "node src/zoom/runZoomBot.js",
     "call": "node src/call/runCallBot.js",
     "transcribe": "node src/pipeline/processRecording.js"
