@@ -1,0 +1,21 @@
+{
+  "name": "meeting-bot-mvp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "zoom": "node src/zoom/runZoomBot.js",
+    "call": "node src/call/runCallBot.js",
+    "transcribe": "node src/pipeline/processRecording.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "openai": "^4.78.1",
+    "playwright": "^1.49.1",
+    "twilio": "^5.4.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {}
+}
