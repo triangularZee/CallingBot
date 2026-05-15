@@ -1,4 +1,4 @@
-import fs from 'node:fs';
+import { openAsBlob } from 'node:fs';
 import fsp from 'node:fs/promises';
 import OpenAI from 'openai';
 import { config } from '../config.js';
@@ -35,14 +35,30 @@ export async function transcribeRecording(filePath, {
   language = 'ko',
   transcriptionModel = 'gpt-4o-transcribe'
 } = {}) {
-  const openai = client();
-  const transcription = await withRetry(() =>
-    openai.audio.transcriptions.create({
-      file: fs.createReadStream(filePath),
-      model: transcriptionModel,
-      language
-    })
-  );
+  const transcription = await withRetry(async () => {
+    const form = new FormData();
+    const audio = await openAsBlob(filePath);
+    form.append('file', audio, filePath.split(/[\\/]/).pop() ?? 'recording.wav');
+    form.append('model', transcriptionModel);
+    form.append('language', language);
+
+    const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${config.openaiApiKey}`
+      },
+      body: form,
+      signal: AbortSignal.timeout(180_000)
+    });
+
+    const text = await response.text();
+    if (!response.ok) {
+      const error = new Error(`OpenAI transcription failed: ${response.status} ${text}`);
+      error.status = response.status;
+      throw error;
+    }
+    return JSON.parse(text);
+  });
 
   const transcriptPath = outputPath(title, 'transcript.json');
   const transcriptTextPath = outputPath(title, 'transcript.txt');
