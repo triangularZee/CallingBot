@@ -30,6 +30,10 @@ export async function dialConference({
   return client.calls.create({
     to,
     from: config.twilio.fromNumber,
-    url: `${config.publicBaseUrl}/twilio/conference-twiml?title=${encodedTitle}&digits=${encodedDigits}&note=${encodedNote}&notifyChatId=${encodedNotifyChatId}&silenceTimeout=${encodedSilenceTimeout}`
+    url: `${config.publicBaseUrl}/twilio/conference-twiml?title=${encodedTitle}&digits=${encodedDigits}&note=${encodedNote}&notifyChatId=${encodedNotifyChatId}&silenceTimeout=${encodedSilenceTimeout}`,
+    record: true,
+    recordingChannels: 'mono',
+    recordingStatusCallback: `${config.publicBaseUrl}/twilio/recording?title=${encodedTitle}&note=${encodedNote}&notifyChatId=${encodedNotifyChatId}`,
+    recordingStatusCallbackEvent: ['completed']
   });
 }

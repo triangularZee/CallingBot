@@ -9,6 +9,7 @@ import { ensureDirs, recordingPath } from './utils/files.js';
 import { processRecording } from './pipeline/openaiPipeline.js';
 import { runZoomBot } from './zoom/zoomBot.js';
 import { dialConference } from './call/twilioCallBot.js';
+import { attachSilenceMonitor } from './call/silenceMonitor.js';
 import { sendTelegramDocument, sendTelegramMessage } from './telegram/notify.js';
 import { createTelegramBot } from './telegram/createBot.js';
 
@@ -78,14 +79,16 @@ app.post('/twilio/conference-twiml', (req, res) => {
     response.play({ digits });
   }
 
-  response.record({
-    action: `${config.publicBaseUrl}/twilio/recording?title=${encodeURIComponent(title)}&note=${encodeURIComponent(note)}&notifyChatId=${encodeURIComponent(notifyChatId)}`,
-    method: 'POST',
-    timeout: silenceTimeout,
-    maxLength: 14400,
-    playBeep: false,
-    trim: 'do-not-trim'
+  const start = response.start();
+  const stream = start.stream({
+    url: `${config.publicBaseUrl.replace(/^http/, 'ws')}/twilio/media-stream`,
+    track: 'inbound_track'
   });
+  stream.parameter({ name: 'silenceTimeout', value: String(silenceTimeout) });
+  stream.parameter({ name: 'title', value: title });
+  stream.parameter({ name: 'notifyChatId', value: notifyChatId });
+
+  response.pause({ length: 14400 });
 
   res.type('text/xml').send(response.toString());
 });
@@ -146,6 +149,8 @@ app.use((error, _req, res, _next) => {
   res.status(400).json({ error: error.message });
 });
 
-app.listen(config.port, () => {
+const server = app.listen(config.port, () => {
   console.log(`Meeting bot server listening on http://localhost:${config.port}`);
 });
+
+attachSilenceMonitor(server);
