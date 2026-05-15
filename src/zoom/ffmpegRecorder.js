@@ -2,7 +2,11 @@ import { spawn } from 'node:child_process';
 import os from 'node:os';
 import { config } from '../config.js';
 
-export function startFfmpegRecorder(outputFile, { silenceTimeout = 0, onSilence = null } = {}) {
+export function startFfmpegRecorder(outputFile, {
+  silenceTimeout = 0,
+  silenceNoiseDb = config.zoomSilenceNoiseDb,
+  onSilence = null
+} = {}) {
   if (!config.audioInputDevice) {
     throw new Error('AUDIO_INPUT_DEVICE is required for Zoom recording');
   }
@@ -20,7 +24,7 @@ export function startFfmpegRecorder(outputFile, { silenceTimeout = 0, onSilence 
 
   const silenceSeconds = Math.trunc(Number(silenceTimeout));
   if (silenceSeconds > 0) {
-    args.push('-af', `silencedetect=noise=-45dB:d=${silenceSeconds}`);
+    args.push('-af', `silencedetect=noise=${Number(silenceNoiseDb)}dB:d=${silenceSeconds}`);
   }
 
   args.push('-ac', '1', '-ar', '16000', outputFile);

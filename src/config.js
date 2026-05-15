@@ -19,6 +19,7 @@ export const config = {
   ffmpegPath: process.env.FFMPEG_PATH ?? 'ffmpeg',
   audioInputDevice: process.env.AUDIO_INPUT_DEVICE ?? '',
   zoomBotName: process.env.ZOOM_BOT_NAME ?? '신한 박시은',
+  zoomSilenceNoiseDb: Number(process.env.ZOOM_SILENCE_NOISE_DB ?? -30),
   zoomHeadless: (process.env.ZOOM_HEADLESS ?? 'false').toLowerCase() === 'true',
   twilio: {
     accountSid: process.env.TWILIO_ACCOUNT_SID ?? '',
