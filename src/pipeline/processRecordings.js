@@ -24,6 +24,7 @@ const note = args.note ? String(args.note) : '';
 const language = args.language ? String(args.language) : 'ko';
 const summaryProvider = args['summary-provider'] ? String(args['summary-provider']) : undefined;
 const preprocessAudio = args['no-preprocess'] ? false : true;
+const ensembleTranscription = args['single-stt'] ? false : true;
 const limit = args.limit && args.limit !== true ? Number(args.limit) : Infinity;
 
 await ensureDirs();
@@ -35,7 +36,7 @@ for (const file of files) {
   const title = args.title && args.title !== true ? String(args.title) : titleFromFile(file);
   console.error(`Processing ${file} as "${title}"`);
   try {
-    const result = await processRecording(file, { title, note, language, summaryProvider, preprocessAudio });
+    const result = await processRecording(file, { title, note, language, summaryProvider, preprocessAudio, ensembleTranscription });
     results.push({ file, title, ok: true, ...result });
     console.error(`Done ${file}`);
   } catch (error) {

@@ -30,17 +30,49 @@ async function withRetry(operation, { attempts = 3, baseDelayMs = 2000 } = {}) {
   throw lastError;
 }
 
-export async function transcribeRecording(filePath, {
-  title = 'meeting',
-  language = 'ko',
-  transcriptionModel = 'gpt-4o-transcribe',
-  preprocessAudio = true
-} = {}) {
+async function callOpenAIResponses({ model, input, temperature = 0.2, timeoutMs = 300_000 }) {
+  ensureOpenAIKey();
+  return withRetry(async () => {
+    const apiResponse = await fetch('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${config.openaiApiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ model, input, temperature }),
+      signal: AbortSignal.timeout(timeoutMs)
+    });
+
+    const text = await apiResponse.text();
+    if (!apiResponse.ok) {
+      const error = new Error(`OpenAI response failed: ${apiResponse.status} ${text}`);
+      error.status = apiResponse.status;
+      try {
+        error.code = JSON.parse(text).error?.code;
+      } catch {
+        // Ignore non-JSON error bodies.
+      }
+      throw error;
+    }
+    return JSON.parse(text);
+  });
+}
+
+function extractResponseText(response) {
+  if (response.output_text) return response.output_text;
+  return (response.output ?? [])
+    .flatMap((item) => item.content ?? [])
+    .map((content) => content.text ?? '')
+    .join('');
+}
+
+async function callTranscription(filePath, { title, language, transcriptionModel, preprocessAudio }) {
   ensureOpenAIKey();
   const inputPath = preprocessAudio
     ? await preprocessAudioForTranscription(filePath, { title })
     : filePath;
-  const transcription = await withRetry(async () => {
+
+  return withRetry(async () => {
     const form = new FormData();
     const audio = await openAsBlob(inputPath);
     form.append('file', audio, inputPath.split(/[\\/]/).pop() ?? 'recording.wav');
@@ -69,24 +101,122 @@ export async function transcribeRecording(filePath, {
     }
     return JSON.parse(text);
   });
+}
 
-  const transcriptPath = outputPath(title, 'transcript.json');
-  const transcriptTextPath = outputPath(title, 'transcript.txt');
-  const transcriptText = transcription.text ?? JSON.stringify(transcription);
-  await fsp.writeFile(transcriptPath, JSON.stringify(transcription, null, 2), 'utf8');
+export async function transcribeRecording(filePath, {
+  title = 'meeting',
+  language = 'ko',
+  transcriptionModel = 'gpt-4o-transcribe',
+  preprocessAudio = true
+} = {}) {
+  const transcript = await callTranscription(filePath, { title, language, transcriptionModel, preprocessAudio });
+  const transcriptPath = outputPath(title, `${transcriptionModel}.transcript.json`);
+  const transcriptTextPath = outputPath(title, `${transcriptionModel}.transcript.txt`);
+  const transcriptText = transcript.text ?? JSON.stringify(transcript);
+  await fsp.writeFile(transcriptPath, JSON.stringify(transcript, null, 2), 'utf8');
   await fsp.writeFile(transcriptTextPath, transcriptText, 'utf8');
 
   return {
-    transcript: transcription,
+    transcript,
     transcriptPath,
-    transcriptTextPath
+    transcriptTextPath,
+    transcriptText,
+    model: transcriptionModel
+  };
+}
+
+function mergeInstructions() {
+  return [
+    '너는 전화 녹음 STT 결과를 병합하는 전문 편집자다.',
+    '두 개의 STT 결과를 비교해서 정보량이 가장 많은 통합 녹취록을 작성하라.',
+    '반복된 짧은 발화, 감탄사, 테스트 문구도 생략하지 않는다.',
+    '한 결과 중 하나에만 있는 발화도 보존한다.',
+    '명백한 오인식이거나 상식적으로 보이는 환청 단어는 문맥상 확실할 때만 제거한다.',
+    '원문에 없는 내용을 새로 만들지 않는다.',
+    '출력은 통합 녹취 텍스트만 제공한다.'
+  ].join('\n');
+}
+
+export async function mergeTranscripts({ title, primaryText, fallbackText }) {
+  const response = await callOpenAIResponses({
+    model: config.openaiSummaryModel,
+    input: [
+      { role: 'system', content: mergeInstructions() },
+      {
+        role: 'user',
+        content: [
+          `통화 제목: ${title}`,
+          '',
+          '[STT A: gpt-4o-transcribe]',
+          primaryText || '(비어 있음)',
+          '',
+          '[STT B: whisper-1]',
+          fallbackText || '(비어 있음)',
+          '',
+          '두 결과를 비교해서 정보량이 가장 많은 통합 녹취록을 작성하라.'
+        ].join('\n')
+      }
+    ],
+    temperature: 0
+  });
+  return extractResponseText(response).trim();
+}
+
+export async function transcribeRecordingEnsemble(filePath, {
+  title = 'meeting',
+  language = 'ko',
+  preprocessAudio = true
+} = {}) {
+  const primary = await transcribeRecording(filePath, {
+    title: `${title}.gpt4o`,
+    language,
+    transcriptionModel: 'gpt-4o-transcribe',
+    preprocessAudio
+  });
+  const fallback = await transcribeRecording(filePath, {
+    title: `${title}.whisper`,
+    language,
+    transcriptionModel: 'whisper-1',
+    preprocessAudio
+  });
+
+  const mergedText = await mergeTranscripts({
+    title,
+    primaryText: primary.transcriptText,
+    fallbackText: fallback.transcriptText
+  });
+  const transcriptPath = outputPath(title, 'merged-transcript.json');
+  const transcriptTextPath = outputPath(title, 'merged-transcript.txt');
+  await fsp.writeFile(
+    transcriptPath,
+    JSON.stringify({
+      text: mergedText,
+      sources: {
+        gpt4o: primary.transcriptText,
+        whisper: fallback.transcriptText
+      },
+      paths: {
+        gpt4o: primary.transcriptTextPath,
+        whisper: fallback.transcriptTextPath
+      }
+    }, null, 2),
+    'utf8'
+  );
+  await fsp.writeFile(transcriptTextPath, mergedText, 'utf8');
+
+  return {
+    transcript: { text: mergedText },
+    transcriptPath,
+    transcriptTextPath,
+    transcriptText: mergedText,
+    sourceTranscripts: { primary, fallback }
   };
 }
 
 function summaryInstructions() {
   return [
     '너는 한국어 금융/기업 실적 컨퍼런스콜 전문 애널리스트다.',
-    '아래 녹취록을 천천히 검토한 뒤, 사용자가 지정한 형식에 맞춰 한국어 요약을 작성하라.',
+    '아래 녹취록을 천천히 검토한 뒤 사용자가 지정한 형식에 맞춰 한국어 요약을 작성하라.',
     '출력은 Markdown 텍스트만 제공한다.',
     '',
     '중요 규칙:',
@@ -153,46 +283,14 @@ function summaryUserPrompt({ title, note, transcriptText }) {
   ].join('\n');
 }
 
-function extractResponseText(response) {
-  if (response.output_text) return response.output_text;
-  return (response.output ?? [])
-    .flatMap((item) => item.content ?? [])
-    .map((content) => content.text ?? '')
-    .join('');
-}
-
 export async function summarizeTranscript(transcriptText, { title = 'meeting', note = '' } = {}) {
-  ensureOpenAIKey();
-  const response = await withRetry(async () => {
-    const apiResponse = await fetch('https://api.openai.com/v1/responses', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${config.openaiApiKey}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: config.openaiSummaryModel,
-        input: [
-          { role: 'system', content: summaryInstructions() },
-          { role: 'user', content: summaryUserPrompt({ title, note, transcriptText }) }
-        ],
-        temperature: 0.2
-      }),
-      signal: AbortSignal.timeout(300_000)
-    });
-
-    const text = await apiResponse.text();
-    if (!apiResponse.ok) {
-      const error = new Error(`OpenAI summary failed: ${apiResponse.status} ${text}`);
-      error.status = apiResponse.status;
-      try {
-        error.code = JSON.parse(text).error?.code;
-      } catch {
-        // Ignore non-JSON error bodies.
-      }
-      throw error;
-    }
-    return JSON.parse(text);
+  const response = await callOpenAIResponses({
+    model: config.openaiSummaryModel,
+    input: [
+      { role: 'system', content: summaryInstructions() },
+      { role: 'user', content: summaryUserPrompt({ title, note, transcriptText }) }
+    ],
+    temperature: 0.2
   });
 
   const summary = extractResponseText(response);
@@ -206,8 +304,11 @@ export async function summarizeTranscript(transcriptText, { title = 'meeting', n
 }
 
 export async function processRecording(filePath, options = {}) {
-  const { transcript, transcriptPath, transcriptTextPath } = await transcribeRecording(filePath, options);
-  const text = transcript.text ?? JSON.stringify(transcript);
+  const useEnsemble = options.ensembleTranscription ?? true;
+  const transcription = useEnsemble
+    ? await transcribeRecordingEnsemble(filePath, options)
+    : await transcribeRecording(filePath, options);
+  const text = transcription.transcriptText ?? transcription.transcript.text ?? JSON.stringify(transcription.transcript);
   const provider = options.summaryProvider ?? config.summaryProvider;
   const { summary, summaryPath } =
     provider === 'gemini'
@@ -215,8 +316,9 @@ export async function processRecording(filePath, options = {}) {
       : await summarizeTranscript(text, options);
 
   return {
-    transcriptPath,
-    transcriptTextPath,
+    transcriptPath: transcription.transcriptPath,
+    transcriptTextPath: transcription.transcriptTextPath,
+    sourceTranscripts: transcription.sourceTranscripts,
     summaryPath,
     summary
   };
