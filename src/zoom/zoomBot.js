@@ -68,6 +68,15 @@ async function joinFromBrowser(page) {
   await page.waitForTimeout(3000);
 }
 
+function toZoomWebClientUrl(joinUrl) {
+  const url = new URL(joinUrl);
+  const match = url.pathname.match(/^\/j\/(\d+)/);
+  if (match) {
+    url.pathname = `/wc/join/${match[1]}`;
+  }
+  return url.toString();
+}
+
 export async function runZoomBot({
   joinUrl,
   title = 'zoom-meeting',
@@ -118,11 +127,18 @@ export async function runZoomBot({
     stop().catch((error) => console.error('Zoom bot max duration stop failed:', error));
   }, maxDurationMs);
 
-  await page.goto(joinUrl, { waitUntil: 'domcontentloaded' });
+  const webClientUrl = toZoomWebClientUrl(joinUrl);
+  console.log(`Zoom web client URL: ${webClientUrl}`);
+  await page.goto(webClientUrl, { waitUntil: 'domcontentloaded' });
 
   await saveZoomDebug(page, title, 'loaded');
   await joinFromBrowser(page);
   await saveZoomDebug(page, title, 'browser-join');
+
+  const stillOnJoinLauncher = await page.locator('button:has-text("Join from browser")').count().catch(() => 0);
+  if (stillOnJoinLauncher > 0) {
+    throw new Error('Zoom browser join did not open. The meeting may block web client access, or Zoom changed the join flow.');
+  }
 
   const nameField = page
     .locator('input[placeholder*="name" i], input[aria-label*="name" i], input[type="text"]')
