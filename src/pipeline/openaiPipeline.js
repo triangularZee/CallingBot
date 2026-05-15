@@ -22,6 +22,7 @@ async function withRetry(operation, { attempts = 3, baseDelayMs = 2000 } = {}) {
     } catch (error) {
       lastError = error;
       const status = error.status ?? error.response?.status;
+      if (error.code === 'insufficient_quota') break;
       const retryable = !status || status === 408 || status === 409 || status === 429 || status >= 500;
       if (!retryable || attempt === attempts) break;
       await sleep(baseDelayMs * attempt);
@@ -55,6 +56,11 @@ export async function transcribeRecording(filePath, {
     if (!response.ok) {
       const error = new Error(`OpenAI transcription failed: ${response.status} ${text}`);
       error.status = response.status;
+      try {
+        error.code = JSON.parse(text).error?.code;
+      } catch {
+        // Ignore non-JSON error bodies.
+      }
       throw error;
     }
     return JSON.parse(text);
