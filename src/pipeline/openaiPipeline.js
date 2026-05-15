@@ -2,6 +2,7 @@ import { openAsBlob } from 'node:fs';
 import fsp from 'node:fs/promises';
 import { config } from '../config.js';
 import { outputPath } from '../utils/files.js';
+import { preprocessAudioForTranscription } from './audioPreprocess.js';
 import { summarizeWithGemini } from './geminiSummary.js';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -32,13 +33,17 @@ async function withRetry(operation, { attempts = 3, baseDelayMs = 2000 } = {}) {
 export async function transcribeRecording(filePath, {
   title = 'meeting',
   language = 'ko',
-  transcriptionModel = 'gpt-4o-transcribe'
+  transcriptionModel = 'gpt-4o-transcribe',
+  preprocessAudio = true
 } = {}) {
   ensureOpenAIKey();
+  const inputPath = preprocessAudio
+    ? await preprocessAudioForTranscription(filePath, { title })
+    : filePath;
   const transcription = await withRetry(async () => {
     const form = new FormData();
-    const audio = await openAsBlob(filePath);
-    form.append('file', audio, filePath.split(/[\\/]/).pop() ?? 'recording.wav');
+    const audio = await openAsBlob(inputPath);
+    form.append('file', audio, inputPath.split(/[\\/]/).pop() ?? 'recording.wav');
     form.append('model', transcriptionModel);
     form.append('language', language);
 
