@@ -93,6 +93,28 @@ async function saveZoomDebug(page, title, label) {
   console.log(`Zoom debug saved: ${screenshotPath}`);
 }
 
+async function assertZoomJoinable(page) {
+  const errorPatterns = [
+    /meeting link is invalid/i,
+    /invalid meeting/i,
+    /meeting id is invalid/i,
+    /this meeting has been ended/i,
+    /unable to join/i,
+    /error code:\s*\d+/i,
+    /\\(3,001\\)/i,
+    /유효하지.*미팅/i,
+    /잘못된.*링크/i,
+    /종료된.*미팅/i
+  ];
+
+  const text = await page.locator('body').innerText({ timeout: 3000 }).catch(() => '');
+  const matched = errorPatterns.find((pattern) => pattern.test(text));
+  if (matched) {
+    const compact = text.replace(/\s+/g, ' ').trim().slice(0, 240);
+    throw new Error(`Zoom join failed before recording: ${compact || matched.source}`);
+  }
+}
+
 function startMeetingEndWatcher(page, onEnded) {
   const endedPatterns = [
     /meeting has been ended/i,
@@ -230,8 +252,10 @@ export async function runZoomBot({
   await page.goto(webClientUrl, { waitUntil: 'domcontentloaded' });
 
   await saveZoomDebug(page, title, 'loaded');
+  await assertZoomJoinable(page);
   await joinFromBrowser(page);
   await saveZoomDebug(page, title, 'browser-join');
+  await assertZoomJoinable(page);
 
   const stillOnJoinLauncher = await page.locator('button:has-text("Join from browser")').count().catch(() => 0);
   if (stillOnJoinLauncher > 0) {
@@ -253,6 +277,7 @@ export async function runZoomBot({
   await clickButtonByName(page, /continue/i, 1000);
   await clickButtonByName(page, /got it/i, 1000);
   await saveZoomDebug(page, title, 'after-join');
+  await assertZoomJoinable(page);
 
   stopMeetingEndWatcher = startMeetingEndWatcher(page, () => {
     stop('meeting-ended').catch((error) => console.error('Zoom meeting-end stop failed:', error));
