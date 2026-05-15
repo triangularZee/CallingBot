@@ -35,8 +35,9 @@ npm run zoom -- --url "https://zoom.us/j/123456789?pwd=..." --title "weekly-sync
 Outputs:
 
 - `recordings/*.wav`
-- `outputs/*.transcript.json`
-- `outputs/*.summary.md`
+- `outputs/*-transcript.json`
+- `outputs/*-transcript.txt`
+- `outputs/*-gemini-summary.md`
 
 Stop with `Ctrl+C`. The process finalizes transcription after the browser/recorder stops.
 
@@ -63,6 +64,28 @@ npm run call -- --to "+18005551234" --digits "ww123456#ww7890#" --title "board-c
 The `digits` string uses Twilio DTMF syntax. `w` waits briefly, `#` is pound.
 
 The call flow does not speak a greeting. It only waits, presses the configured DTMF digits, stays connected, records the call, transcribes it, and summarizes it with Gemini.
+
+## Reprocess Recordings
+
+Transcribe one existing recording with OpenAI and summarize it with Google AI Studio/Gemini:
+
+```powershell
+npm run transcribe -- --file "./recordings/example.wav" --title "251212_FY4Q25 Broadcom" --note "AI 매출, backlog, Q&A를 자세히 정리"
+```
+
+Process every audio file in `recordings/`:
+
+```powershell
+npm run transcribe:all
+```
+
+Useful options:
+
+```powershell
+npm run transcribe:all -- --dir "./recordings" --limit 3 --language ko --summary-provider gemini
+```
+
+Transcripts are saved as both JSON and plain text in `outputs/`; Gemini summaries are saved as Markdown.
 
 ## Telegram Bot
 

@@ -5,6 +5,8 @@ import { config } from '../config.js';
 import { outputPath } from '../utils/files.js';
 import { summarizeWithGemini } from './geminiSummary.js';
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 function client() {
   if (!config.openaiApiKey) {
     throw new Error('OPENAI_API_KEY is required');
@@ -12,20 +14,46 @@ function client() {
   return new OpenAI({ apiKey: config.openaiApiKey });
 }
 
-export async function transcribeRecording(filePath, { title = 'meeting', language = 'ko' } = {}) {
+async function withRetry(operation, { attempts = 3, baseDelayMs = 2000 } = {}) {
+  let lastError;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await operation(attempt);
+    } catch (error) {
+      lastError = error;
+      const status = error.status ?? error.response?.status;
+      const retryable = !status || status === 408 || status === 409 || status === 429 || status >= 500;
+      if (!retryable || attempt === attempts) break;
+      await sleep(baseDelayMs * attempt);
+    }
+  }
+  throw lastError;
+}
+
+export async function transcribeRecording(filePath, {
+  title = 'meeting',
+  language = 'ko',
+  transcriptionModel = 'gpt-4o-transcribe'
+} = {}) {
   const openai = client();
-  const transcription = await openai.audio.transcriptions.create({
-    file: fs.createReadStream(filePath),
-    model: 'gpt-4o-transcribe',
-    language
-  });
+  const transcription = await withRetry(() =>
+    openai.audio.transcriptions.create({
+      file: fs.createReadStream(filePath),
+      model: transcriptionModel,
+      language
+    })
+  );
 
   const transcriptPath = outputPath(title, 'transcript.json');
+  const transcriptTextPath = outputPath(title, 'transcript.txt');
+  const transcriptText = transcription.text ?? JSON.stringify(transcription);
   await fsp.writeFile(transcriptPath, JSON.stringify(transcription, null, 2), 'utf8');
+  await fsp.writeFile(transcriptTextPath, transcriptText, 'utf8');
 
   return {
     transcript: transcription,
-    transcriptPath
+    transcriptPath,
+    transcriptTextPath
   };
 }
 
@@ -70,7 +98,7 @@ export async function summarizeTranscript(transcriptText, { title = 'meeting', n
 }
 
 export async function processRecording(filePath, options = {}) {
-  const { transcript, transcriptPath } = await transcribeRecording(filePath, options);
+  const { transcript, transcriptPath, transcriptTextPath } = await transcribeRecording(filePath, options);
   const text = transcript.text ?? JSON.stringify(transcript);
   const provider = options.summaryProvider ?? 'gemini';
   const { summary, summaryPath } =
@@ -80,6 +108,7 @@ export async function processRecording(filePath, options = {}) {
 
   return {
     transcriptPath,
+    transcriptTextPath,
     summaryPath,
     summary
   };
