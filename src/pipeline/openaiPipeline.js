@@ -1,17 +1,15 @@
 import { openAsBlob } from 'node:fs';
 import fsp from 'node:fs/promises';
-import OpenAI from 'openai';
 import { config } from '../config.js';
 import { outputPath } from '../utils/files.js';
 import { summarizeWithGemini } from './geminiSummary.js';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function client() {
+function ensureOpenAIKey() {
   if (!config.openaiApiKey) {
     throw new Error('OPENAI_API_KEY is required');
   }
-  return new OpenAI({ apiKey: config.openaiApiKey });
 }
 
 async function withRetry(operation, { attempts = 3, baseDelayMs = 2000 } = {}) {
@@ -36,6 +34,7 @@ export async function transcribeRecording(filePath, {
   language = 'ko',
   transcriptionModel = 'gpt-4o-transcribe'
 } = {}) {
+  ensureOpenAIKey();
   const transcription = await withRetry(async () => {
     const form = new FormData();
     const audio = await openAsBlob(filePath);
@@ -79,38 +78,120 @@ export async function transcribeRecording(filePath, {
   };
 }
 
+function summaryInstructions() {
+  return [
+    '너는 한국어 금융/기업 실적 컨퍼런스콜 전문 애널리스트다.',
+    '아래 녹취록을 천천히 검토한 뒤, 사용자가 지정한 형식에 맞춰 한국어 요약을 작성하라.',
+    '출력은 Markdown 텍스트만 제공한다.',
+    '',
+    '중요 규칙:',
+    '- 녹취록에 있는 모든 Q&A를 빠짐없이 포함한다.',
+    '- "Qn)" 줄과 "An)" 줄 사이에는 반드시 줄바꿈을 둔다.',
+    '- Q&A를 합치거나 생략하지 않는다.',
+    '- 숫자, 회사명, 제품명, 기간, 가이던스는 가능한 한 원문에 충실하게 유지한다.',
+    '- 정보가 불명확하면 "확인 필요"라고 적고 추정하지 않는다.',
+    '- 사용자 메모가 있으면 요약의 초점과 해석에 반영하되, 녹취록과 충돌하는 내용을 사실처럼 쓰지 않는다.'
+  ].join('\n');
+}
+
+function summaryUserPrompt({ title, note, transcriptText }) {
+  return [
+    '반드시 아래 구조를 따른다.',
+    '',
+    'YYMMDD_회사명 [핵심 태그]',
+    '',
+    '(1) 핵심 요약',
+    '',
+    '(2) 핵심 요약',
+    '',
+    '(3) Guidance 또는 전망',
+    '■ 세부 항목',
+    '■ 세부 항목',
+    '',
+    '필요한 만큼 번호를 이어간다.',
+    '',
+    '-',
+    '',
+    '[Q&A]',
+    '',
+    'Q1) 질문자 기관: 질문',
+    '',
+    'A1) 답변',
+    '',
+    'Q2) 질문자 기관: 질문',
+    '',
+    'A2) 답변',
+    '',
+    '모든 Q&A가 끝날 때까지 반복한다.',
+    '',
+    '-',
+    '',
+    '[Implication]',
+    '',
+    '(1) 투자/산업적 함의 제목',
+    '',
+    '■ 세부 해석',
+    '■ 세부 해석',
+    '',
+    '(2) 투자/산업적 함의 제목',
+    '',
+    '■ 세부 해석',
+    '■ 세부 해석',
+    '',
+    `통화 제목: ${title}`,
+    '',
+    '사용자 메모:',
+    note || '(없음)',
+    '',
+    '녹취록:',
+    transcriptText
+  ].join('\n');
+}
+
+function extractResponseText(response) {
+  if (response.output_text) return response.output_text;
+  return (response.output ?? [])
+    .flatMap((item) => item.content ?? [])
+    .map((content) => content.text ?? '')
+    .join('');
+}
+
 export async function summarizeTranscript(transcriptText, { title = 'meeting', note = '' } = {}) {
-  const openai = client();
-  const response = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
-    messages: [
-      {
-        role: 'system',
-        content: [
-          'You summarize meeting transcripts into concise Korean notes.',
-          'Return Markdown only.',
-          'Include the user note as context when it is provided.',
-          'If information is missing, say 확인 필요 instead of inventing details.'
-        ].join(' ')
+  ensureOpenAIKey();
+  const response = await withRetry(async () => {
+    const apiResponse = await fetch('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${config.openaiApiKey}`,
+        'Content-Type': 'application/json'
       },
-      {
-        role: 'user',
-        content: [
-          `통화 제목: ${title}`,
-          '',
-          '사용자 메모:',
-          note || '(없음)',
-          '',
-          '녹취록:',
-          transcriptText
-        ].join('\n')
+      body: JSON.stringify({
+        model: config.openaiSummaryModel,
+        input: [
+          { role: 'system', content: summaryInstructions() },
+          { role: 'user', content: summaryUserPrompt({ title, note, transcriptText }) }
+        ],
+        temperature: 0.2
+      }),
+      signal: AbortSignal.timeout(300_000)
+    });
+
+    const text = await apiResponse.text();
+    if (!apiResponse.ok) {
+      const error = new Error(`OpenAI summary failed: ${apiResponse.status} ${text}`);
+      error.status = apiResponse.status;
+      try {
+        error.code = JSON.parse(text).error?.code;
+      } catch {
+        // Ignore non-JSON error bodies.
       }
-    ],
-    temperature: 0.2
+      throw error;
+    }
+    return JSON.parse(text);
   });
 
-  const summary = response.choices[0]?.message?.content ?? '';
-  const summaryPath = outputPath(title, 'summary.md');
+  const summary = extractResponseText(response);
+  const summaryPath = outputPath(title, `${config.openaiSummaryModel}-summary.md`);
   await fsp.writeFile(summaryPath, summary, 'utf8');
 
   return {
@@ -122,11 +203,11 @@ export async function summarizeTranscript(transcriptText, { title = 'meeting', n
 export async function processRecording(filePath, options = {}) {
   const { transcript, transcriptPath, transcriptTextPath } = await transcribeRecording(filePath, options);
   const text = transcript.text ?? JSON.stringify(transcript);
-  const provider = options.summaryProvider ?? 'gemini';
+  const provider = options.summaryProvider ?? config.summaryProvider;
   const { summary, summaryPath } =
-    provider === 'openai'
-      ? await summarizeTranscript(text, options)
-      : await summarizeWithGemini(text, options);
+    provider === 'gemini'
+      ? await summarizeWithGemini(text, options)
+      : await summarizeTranscript(text, options);
 
   return {
     transcriptPath,

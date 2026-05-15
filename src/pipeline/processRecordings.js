@@ -22,7 +22,7 @@ const args = parseArgs();
 const dir = args.dir ? path.resolve(String(args.dir)) : config.recordingsDir;
 const note = args.note ? String(args.note) : '';
 const language = args.language ? String(args.language) : 'ko';
-const summaryProvider = args['summary-provider'] ? String(args['summary-provider']) : 'gemini';
+const summaryProvider = args['summary-provider'] ? String(args['summary-provider']) : undefined;
 const limit = args.limit && args.limit !== true ? Number(args.limit) : Infinity;
 
 await ensureDirs();

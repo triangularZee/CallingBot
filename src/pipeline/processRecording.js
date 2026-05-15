@@ -7,7 +7,7 @@ const file = requireArg(args, 'file');
 const title = args.title ? String(args.title) : 'meeting';
 const note = args.note ? String(args.note) : '';
 const language = args.language ? String(args.language) : 'ko';
-const summaryProvider = args['summary-provider'] ? String(args['summary-provider']) : 'gemini';
+const summaryProvider = args['summary-provider'] ? String(args['summary-provider']) : undefined;
 
 await ensureDirs();
 const result = await processRecording(file, { title, note, language, summaryProvider });

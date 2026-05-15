@@ -67,7 +67,7 @@ The call flow does not speak a greeting. It only waits, presses the configured D
 
 ## Reprocess Recordings
 
-Transcribe one existing recording with OpenAI and summarize it with Google AI Studio/Gemini:
+Transcribe one existing recording with OpenAI and summarize it with OpenAI `gpt-5.4` by default:
 
 ```powershell
 npm run transcribe -- --file "./recordings/example.wav" --title "251212_FY4Q25 Broadcom" --note "AI 매출, backlog, Q&A를 자세히 정리"
@@ -82,10 +82,11 @@ npm run transcribe:all
 Useful options:
 
 ```powershell
-npm run transcribe:all -- --dir "./recordings" --limit 3 --language ko --summary-provider gemini
+npm run transcribe:all -- --dir "./recordings" --limit 3 --language ko
 ```
 
-Transcripts are saved as both JSON and plain text in `outputs/`; Gemini summaries are saved as Markdown.
+Transcripts are saved as both JSON and plain text in `outputs/`; summaries are saved as Markdown.
+Set `SUMMARY_PROVIDER=gemini` if you want to switch summaries back to Google AI Studio/Gemini.
 
 ## Telegram Bot
 
@@ -93,6 +94,8 @@ Required `.env` values:
 
 ```env
 OPENAI_API_KEY=...
+SUMMARY_PROVIDER=openai
+OPENAI_SUMMARY_MODEL=gpt-5.4
 GEMINI_API_KEY=...
 # or GOOGLE_AI_API_KEY=...
 TWILIO_ACCOUNT_SID=...

@@ -10,6 +10,8 @@ export const config = {
   port: Number(process.env.PORT ?? 3000),
   publicBaseUrl: process.env.PUBLIC_BASE_URL ?? '',
   openaiApiKey: process.env.OPENAI_API_KEY ?? '',
+  openaiSummaryModel: process.env.OPENAI_SUMMARY_MODEL ?? 'gpt-5.4',
+  summaryProvider: process.env.SUMMARY_PROVIDER ?? 'openai',
   geminiApiKey: process.env.GEMINI_API_KEY ?? process.env.GOOGLE_AI_API_KEY ?? '',
   geminiModel: process.env.GEMINI_MODEL ?? 'gemini-2.5-flash',
   recordingsDir: path.resolve(rootDir, process.env.RECORDINGS_DIR ?? './recordings'),
