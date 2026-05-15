@@ -93,6 +93,34 @@ async function saveZoomDebug(page, title, label) {
   console.log(`Zoom debug saved: ${screenshotPath}`);
 }
 
+function startMeetingEndWatcher(page, onEnded) {
+  const endedPatterns = [
+    /meeting has been ended/i,
+    /host ended this meeting/i,
+    /this meeting has ended/i,
+    /you have been removed/i,
+    /removed from the meeting/i,
+    /disconnected/i,
+    /reconnect/i,
+    /회의가 종료/i,
+    /미팅이 종료/i,
+    /연결이 끊/i
+  ];
+
+  const timer = setInterval(async () => {
+    try {
+      const text = await page.locator('body').innerText({ timeout: 1000 });
+      if (endedPatterns.some((pattern) => pattern.test(text))) {
+        onEnded();
+      }
+    } catch {
+      onEnded();
+    }
+  }, 10_000);
+
+  return () => clearInterval(timer);
+}
+
 async function joinFromBrowser(page) {
   if (await isNamePromptVisible(page, 2500)) return;
 
@@ -131,11 +159,14 @@ export async function runZoomBot({
   note = '',
   autoTranscribe = true,
   maxMinutes = 120,
+  silenceTimeout = 120,
   onDone = null
 }) {
   const outputFile = recordingPath(title, 'wav');
   let recorder = null;
   let maxTimer = null;
+  let stopMeetingEndWatcher = null;
+  let stopReason = 'manual';
 
   const browser = await chromium.launch({
     headless: config.zoomHeadless,
@@ -155,28 +186,31 @@ export async function runZoomBot({
   const page = await context.newPage();
   let stopped = false;
 
-  async function stop() {
+  async function stop(reason = 'manual') {
     if (stopped) return null;
     stopped = true;
+    stopReason = reason;
+    if (maxTimer) clearTimeout(maxTimer);
+    stopMeetingEndWatcher?.();
     if (recorder) await recorder.stop();
     await browser.close().catch(() => {});
 
     if (!autoTranscribe) {
-      return { recordingPath: outputFile };
+      return { recordingPath: outputFile, stopReason };
     }
 
     if (!recorder) {
-      return { recordingPath: outputFile, summary: 'Zoom bot stopped before recording started.' };
+      return { recordingPath: outputFile, stopReason, summary: 'Zoom bot stopped before recording started.' };
     }
 
     const processed = await processRecording(outputFile, { title, note });
-    const result = { recordingPath: outputFile, ...processed };
+    const result = { recordingPath: outputFile, stopReason, ...processed };
     if (onDone) await onDone(result);
     return result;
   }
 
   process.once('SIGINT', async () => {
-    const result = await stop();
+    const result = await stop('manual');
     console.log(JSON.stringify(result, null, 2));
     process.exit(0);
   });
@@ -213,15 +247,24 @@ export async function runZoomBot({
   await clickButtonByName(page, /got it/i, 1000);
   await saveZoomDebug(page, title, 'after-join');
 
-  recorder = startFfmpegRecorder(outputFile);
+  stopMeetingEndWatcher = startMeetingEndWatcher(page, () => {
+    stop('meeting-ended').catch((error) => console.error('Zoom meeting-end stop failed:', error));
+  });
+
+  recorder = startFfmpegRecorder(outputFile, {
+    silenceTimeout,
+    onSilence: () => {
+      stop('silence-timeout').catch((error) => console.error('Zoom silence stop failed:', error));
+    }
+  });
   maxTimer = setTimeout(() => {
-    stop().catch((error) => console.error('Zoom bot max duration stop failed:', error));
+    stop('max-duration').catch((error) => console.error('Zoom bot max duration stop failed:', error));
   }, maxDurationMs);
 
   console.log(`Zoom bot joined or is waiting. Recording: ${outputFile}`);
+  console.log(`Zoom bot will stop after ${silenceTimeout}s of silence.`);
   console.log('Press Ctrl+C when the meeting ends.');
 
   await page.waitForEvent('close').catch(() => {});
-  if (maxTimer) clearTimeout(maxTimer);
-  return stop();
+  return stop('page-closed');
 }

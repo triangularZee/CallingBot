@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import os from 'node:os';
 import { config } from '../config.js';
 
-export function startFfmpegRecorder(outputFile) {
+export function startFfmpegRecorder(outputFile, { silenceTimeout = 0, onSilence = null } = {}) {
   if (!config.audioInputDevice) {
     throw new Error('AUDIO_INPUT_DEVICE is required for Zoom recording');
   }
@@ -18,10 +18,25 @@ export function startFfmpegRecorder(outputFile) {
     args.push('-f', 'pulse', '-i', config.audioInputDevice);
   }
 
+  const silenceSeconds = Math.trunc(Number(silenceTimeout));
+  if (silenceSeconds > 0) {
+    args.push('-af', `silencedetect=noise=-45dB:d=${silenceSeconds}`);
+  }
+
   args.push('-ac', '1', '-ar', '16000', outputFile);
 
   const child = spawn(config.ffmpegPath, args, {
-    stdio: ['pipe', 'inherit', 'inherit']
+    stdio: ['pipe', 'inherit', 'pipe']
+  });
+
+  let silenceTriggered = false;
+  child.stderr.on('data', (chunk) => {
+    const text = chunk.toString();
+    process.stderr.write(text);
+    if (!silenceTriggered && /silence_start:/i.test(text)) {
+      silenceTriggered = true;
+      onSilence?.();
+    }
   });
 
   return {

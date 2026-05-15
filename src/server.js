@@ -30,7 +30,8 @@ const zoomSchema = z.object({
   title: z.string().default('zoom-meeting'),
   note: z.string().default(''),
   notifyChatId: z.string().default(''),
-  maxMinutes: z.coerce.number().int().min(1).max(480).default(120)
+  maxMinutes: z.coerce.number().int().min(1).max(480).default(120),
+  silenceTimeout: z.coerce.number().int().min(0).max(600).default(120)
 });
 
 const callSchema = z.object({
@@ -61,6 +62,7 @@ app.post('/api/zoom', async (req, res, next) => {
           job.notifyChatId,
           [
             `*${job.title}*`,
+            result.stopReason ? `stop: ${result.stopReason}` : '',
             '',
             result.summary.slice(0, 3800),
             '',
