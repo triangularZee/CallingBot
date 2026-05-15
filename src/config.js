@@ -18,7 +18,7 @@ export const config = {
   outputDir: path.resolve(rootDir, process.env.OUTPUT_DIR ?? './outputs'),
   ffmpegPath: process.env.FFMPEG_PATH ?? 'ffmpeg',
   audioInputDevice: process.env.AUDIO_INPUT_DEVICE ?? '',
-  zoomBotName: process.env.ZOOM_BOT_NAME ?? 'AI Notes Bot',
+  zoomBotName: process.env.ZOOM_BOT_NAME ?? '신한 박시은',
   zoomHeadless: (process.env.ZOOM_HEADLESS ?? 'false').toLowerCase() === 'true',
   twilio: {
     accountSid: process.env.TWILIO_ACCOUNT_SID ?? '',
