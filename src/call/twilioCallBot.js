@@ -37,3 +37,30 @@ export async function dialConference({
     recordingStatusCallbackEvent: ['completed']
   });
 }
+
+export async function hangupCalls({ callSid = '' } = {}) {
+  const client = twilioClient();
+
+  if (callSid) {
+    const call = await client.calls(callSid).update({ status: 'completed' });
+    return [{ sid: call.sid, status: call.status }];
+  }
+
+  const statuses = ['queued', 'ringing', 'in-progress'];
+  const calls = [];
+  for (const status of statuses) {
+    const batch = await client.calls.list({ status, limit: 20 });
+    calls.push(...batch);
+  }
+
+  const outboundCalls = calls.filter((call) => call.from === config.twilio.fromNumber);
+  const uniqueCalls = [...new Map(outboundCalls.map((call) => [call.sid, call])).values()];
+  const results = [];
+
+  for (const call of uniqueCalls) {
+    const updated = await client.calls(call.sid).update({ status: 'completed' });
+    results.push({ sid: updated.sid, status: updated.status });
+  }
+
+  return results;
+}

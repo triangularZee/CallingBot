@@ -180,3 +180,23 @@ Content-Type: application/json
 }
 ```
 
+Hang up active CallingBot calls:
+
+```http
+POST /api/hangup
+Content-Type: application/json
+
+{}
+```
+
+Hang up one specific call:
+
+```http
+POST /api/hangup
+Content-Type: application/json
+
+{
+  "callSid": "CA..."
+}
+```
+

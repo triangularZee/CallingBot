@@ -8,7 +8,7 @@ import { config } from './config.js';
 import { ensureDirs, recordingPath } from './utils/files.js';
 import { processRecording } from './pipeline/openaiPipeline.js';
 import { runZoomBot } from './zoom/zoomBot.js';
-import { dialConference } from './call/twilioCallBot.js';
+import { dialConference, hangupCalls } from './call/twilioCallBot.js';
 import { attachSilenceMonitor } from './call/silenceMonitor.js';
 import { sendTelegramDocument, sendTelegramMessage } from './telegram/notify.js';
 import { createTelegramBot } from './telegram/createBot.js';
@@ -39,6 +39,10 @@ const callSchema = z.object({
   notifyChatId: z.string().default('')
 });
 
+const hangupSchema = z.object({
+  callSid: z.string().default('')
+});
+
 app.get('/health', (_req, res) => {
   res.json({ ok: true });
 });
@@ -58,6 +62,16 @@ app.post('/api/call', async (req, res, next) => {
     const job = callSchema.parse(req.body);
     const call = await dialConference(job);
     res.status(202).json({ status: 'dialing', callSid: call.sid });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/hangup', async (req, res, next) => {
+  try {
+    const job = hangupSchema.parse(req.body);
+    const results = await hangupCalls(job);
+    res.json({ status: 'completed', count: results.length, calls: results });
   } catch (error) {
     next(error);
   }
