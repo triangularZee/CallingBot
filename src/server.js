@@ -34,6 +34,7 @@ const callSchema = z.object({
   digits: z.string().default(''),
   title: z.string().default('phone-conference'),
   note: z.string().default(''),
+  silenceTimeout: z.coerce.number().int().min(1).max(600).default(120),
   notifyChatId: z.string().default('')
 });
 
@@ -63,6 +64,13 @@ app.post('/api/call', async (req, res, next) => {
 
 app.post('/twilio/conference-twiml', (req, res) => {
   const digits = String(req.query.digits ?? '');
+  const title = String(req.query.title ?? 'phone-conference');
+  const note = String(req.query.note ?? '');
+  const notifyChatId = String(req.query.notifyChatId ?? '');
+  const rawSilenceTimeout = Number(req.query.silenceTimeout ?? 120);
+  const silenceTimeout = Number.isFinite(rawSilenceTimeout)
+    ? Math.min(Math.max(Math.trunc(rawSilenceTimeout), 1), 600)
+    : 120;
   const response = new twilio.twiml.VoiceResponse();
 
   if (digits) {
@@ -70,14 +78,22 @@ app.post('/twilio/conference-twiml', (req, res) => {
     response.play({ digits });
   }
 
-  // Keep the bot leg alive while Twilio records the call. The bot is a normal dial-in participant.
-  response.pause({ length: 3600 });
+  response.record({
+    action: `${config.publicBaseUrl}/twilio/recording?title=${encodeURIComponent(title)}&note=${encodeURIComponent(note)}&notifyChatId=${encodeURIComponent(notifyChatId)}`,
+    method: 'POST',
+    timeout: silenceTimeout,
+    maxLength: 14400,
+    playBeep: false,
+    trim: 'do-not-trim'
+  });
 
   res.type('text/xml').send(response.toString());
 });
 
 app.post('/twilio/recording', async (req, res) => {
-  res.sendStatus(204);
+  const response = new twilio.twiml.VoiceResponse();
+  response.hangup();
+  res.type('text/xml').send(response.toString());
 
   try {
     const title = String(req.query.title ?? 'phone-conference');

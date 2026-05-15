@@ -64,6 +64,7 @@ npm run call -- --to "+18005551234" --digits "ww123456#ww7890#" --title "board-c
 The `digits` string uses Twilio DTMF syntax. `w` waits briefly, `#` is pound.
 
 The call flow does not speak a greeting. It only waits, presses the configured DTMF digits, stays connected, records the call, transcribes it, and summarizes it with Gemini.
+By default, the call ends after 120 seconds of continuous silence. Override this with `silenceTimeout` in seconds.
 
 ## Reprocess Recordings
 
@@ -174,7 +175,8 @@ Content-Type: application/json
 {
   "to": "+18005551234",
   "digits": "ww123456#",
-  "title": "vendor-call"
+  "title": "vendor-call",
+  "silenceTimeout": 120
 }
 ```
 
