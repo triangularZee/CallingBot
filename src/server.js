@@ -27,7 +27,9 @@ if (config.telegram.botToken) {
 const zoomSchema = z.object({
   joinUrl: z.string().url(),
   title: z.string().default('zoom-meeting'),
-  note: z.string().default('')
+  note: z.string().default(''),
+  notifyChatId: z.string().default(''),
+  maxMinutes: z.coerce.number().int().min(1).max(480).default(120)
 });
 
 const callSchema = z.object({
@@ -50,7 +52,28 @@ app.get('/health', (_req, res) => {
 app.post('/api/zoom', async (req, res, next) => {
   try {
     const job = zoomSchema.parse(req.body);
-    runZoomBot(job).catch((error) => console.error('Zoom bot failed:', error));
+    runZoomBot({
+      ...job,
+      onDone: async (result) => {
+        if (!job.notifyChatId) return;
+        await sendTelegramMessage(
+          job.notifyChatId,
+          [
+            `*${job.title}*`,
+            '',
+            result.summary.slice(0, 3800),
+            '',
+            result.summary.length > 3800 ? `Summary is long. File: ${result.summaryPath}` : `File: ${result.summaryPath}`
+          ].join('\n')
+        );
+        await sendTelegramDocument(job.notifyChatId, result.recordingPath, `Zoom recording: ${job.title}`);
+      }
+    }).catch((error) => {
+      console.error('Zoom bot failed:', error);
+      if (job.notifyChatId) {
+        sendTelegramMessage(job.notifyChatId, `Zoom bot failed: ${error.message}`).catch(() => {});
+      }
+    });
     res.status(202).json({ status: 'started', ...job });
   } catch (error) {
     next(error);

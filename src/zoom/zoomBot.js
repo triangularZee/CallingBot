@@ -15,7 +15,14 @@ async function clickIfVisible(page, selector, timeout = 2500) {
   }
 }
 
-export async function runZoomBot({ joinUrl, title = 'zoom-meeting', autoTranscribe = true }) {
+export async function runZoomBot({
+  joinUrl,
+  title = 'zoom-meeting',
+  note = '',
+  autoTranscribe = true,
+  maxMinutes = 120,
+  onDone = null
+}) {
   const outputFile = recordingPath(title, 'wav');
   const recorder = startFfmpegRecorder(outputFile);
 
@@ -37,8 +44,10 @@ export async function runZoomBot({ joinUrl, title = 'zoom-meeting', autoTranscri
       return { recordingPath: outputFile };
     }
 
-    const processed = await processRecording(outputFile, { title });
-    return { recordingPath: outputFile, ...processed };
+    const processed = await processRecording(outputFile, { title, note });
+    const result = { recordingPath: outputFile, ...processed };
+    if (onDone) await onDone(result);
+    return result;
   }
 
   process.once('SIGINT', async () => {
@@ -46,6 +55,11 @@ export async function runZoomBot({ joinUrl, title = 'zoom-meeting', autoTranscri
     console.log(JSON.stringify(result, null, 2));
     process.exit(0);
   });
+
+  const maxDurationMs = Math.max(1, Number(maxMinutes)) * 60 * 1000;
+  const maxTimer = setTimeout(() => {
+    stop().catch((error) => console.error('Zoom bot max duration stop failed:', error));
+  }, maxDurationMs);
 
   await page.goto(joinUrl, { waitUntil: 'domcontentloaded' });
 
@@ -72,5 +86,6 @@ export async function runZoomBot({ joinUrl, title = 'zoom-meeting', autoTranscri
   console.log('Press Ctrl+C when the meeting ends.');
 
   await page.waitForEvent('close').catch(() => {});
+  clearTimeout(maxTimer);
   return stop();
 }
