@@ -17,6 +17,17 @@ async function clickIfVisible(page, selector, timeout = 2500) {
   }
 }
 
+async function clickButtonByName(page, namePattern, timeout = 2500) {
+  try {
+    const locator = page.getByRole('button', { name: namePattern }).first();
+    await locator.waitFor({ state: 'visible', timeout });
+    await locator.click();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function saveZoomDebug(page, title, label) {
   const slug = title.replace(/[^a-z0-9가-힣_-]+/gi, '-').slice(0, 80) || 'zoom';
   const fileBase = `${Date.now()}-${slug}-${label}`;
@@ -28,11 +39,10 @@ async function saveZoomDebug(page, title, label) {
 }
 
 async function joinFromBrowser(page) {
-  await clickIfVisible(page, 'text=Join from Your Browser', 8000);
-  await clickIfVisible(page, 'text=Launch Meeting', 3000);
-  await clickIfVisible(page, 'text=Join from Your Browser', 5000);
+  await clickButtonByName(page, /join from browser/i, 8000);
+  await clickButtonByName(page, /launch meeting/i, 3000);
   await clickIfVisible(page, 'text=Cancel', 1500);
-  await clickIfVisible(page, 'text=Join from Your Browser', 5000);
+  await clickButtonByName(page, /join from browser/i, 5000);
 }
 
 export async function runZoomBot({
@@ -44,7 +54,7 @@ export async function runZoomBot({
   onDone = null
 }) {
   const outputFile = recordingPath(title, 'wav');
-  const recorder = startFfmpegRecorder(outputFile);
+  let recorder = null;
 
   const browser = await chromium.launch({
     headless: config.zoomHeadless,
@@ -57,11 +67,15 @@ export async function runZoomBot({
   async function stop() {
     if (stopped) return null;
     stopped = true;
-    await recorder.stop();
+    if (recorder) await recorder.stop();
     await browser.close().catch(() => {});
 
     if (!autoTranscribe) {
       return { recordingPath: outputFile };
+    }
+
+    if (!recorder) {
+      return { recordingPath: outputFile, summary: 'Zoom bot stopped before recording started.' };
     }
 
     const processed = await processRecording(outputFile, { title, note });
@@ -98,12 +112,14 @@ export async function runZoomBot({
     // Some authenticated/browser joins do not ask for a name.
   }
 
-  await clickIfVisible(page, 'button:has-text("Join")', 5000);
-  await clickIfVisible(page, 'button:has-text("Join Audio by Computer")', 15000);
-  await clickIfVisible(page, 'button:has-text("Join with Computer Audio")', 5000);
-  await clickIfVisible(page, 'button:has-text("Continue")', 3000);
-  await clickIfVisible(page, 'button:has-text("Got it")', 3000);
+  await clickButtonByName(page, /^join$/i, 5000);
+  await clickButtonByName(page, /join audio by computer/i, 15000);
+  await clickButtonByName(page, /join with computer audio/i, 5000);
+  await clickButtonByName(page, /continue/i, 3000);
+  await clickButtonByName(page, /got it/i, 3000);
   await saveZoomDebug(page, title, 'after-join');
+
+  recorder = startFfmpegRecorder(outputFile);
 
   console.log(`Zoom bot joined or is waiting. Recording: ${outputFile}`);
   console.log('Press Ctrl+C when the meeting ends.');
