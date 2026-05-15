@@ -9,7 +9,7 @@ import { ensureDirs, recordingPath } from './utils/files.js';
 import { processRecording } from './pipeline/openaiPipeline.js';
 import { runZoomBot } from './zoom/zoomBot.js';
 import { dialConference } from './call/twilioCallBot.js';
-import { sendTelegramMessage } from './telegram/notify.js';
+import { sendTelegramDocument, sendTelegramMessage } from './telegram/notify.js';
 import { createTelegramBot } from './telegram/createBot.js';
 
 await ensureDirs();
@@ -134,6 +134,7 @@ app.post('/twilio/recording', async (req, res) => {
           result.summary.length > 3800 ? `요약이 길어 일부만 전송했습니다. 파일: ${result.summaryPath}` : `파일: ${result.summaryPath}`
         ].join('\n')
       );
+      await sendTelegramDocument(notifyChatId, filePath, `Recording: ${title}`);
     }
   } catch (error) {
     console.error('Twilio recording processing failed:', error);
