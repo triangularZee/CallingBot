@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "node src/server.js",
+    "start:audio": "bash scripts/start-with-audio.sh",
     "telegram": "node src/telegram/bot.js",
     "telegram:set-webhook": "node src/telegram/setWebhook.js",
     "zoom": "node src/zoom/runZoomBot.js",
