@@ -3,6 +3,8 @@ import { config } from '../config.js';
 import { recordingPath } from '../utils/files.js';
 import { processRecording } from '../pipeline/openaiPipeline.js';
 import { startFfmpegRecorder } from './ffmpegRecorder.js';
+import path from 'node:path';
+import fsp from 'node:fs/promises';
 
 async function clickIfVisible(page, selector, timeout = 2500) {
   try {
@@ -13,6 +15,24 @@ async function clickIfVisible(page, selector, timeout = 2500) {
   } catch {
     return false;
   }
+}
+
+async function saveZoomDebug(page, title, label) {
+  const slug = title.replace(/[^a-z0-9가-힣_-]+/gi, '-').slice(0, 80) || 'zoom';
+  const fileBase = `${Date.now()}-${slug}-${label}`;
+  const screenshotPath = path.join(config.outputDir, `${fileBase}.png`);
+  const htmlPath = path.join(config.outputDir, `${fileBase}.html`);
+  await fsp.writeFile(htmlPath, await page.content(), 'utf8').catch(() => {});
+  await page.screenshot({ path: screenshotPath, fullPage: true }).catch(() => {});
+  console.log(`Zoom debug saved: ${screenshotPath}`);
+}
+
+async function joinFromBrowser(page) {
+  await clickIfVisible(page, 'text=Join from Your Browser', 8000);
+  await clickIfVisible(page, 'text=Launch Meeting', 3000);
+  await clickIfVisible(page, 'text=Join from Your Browser', 5000);
+  await clickIfVisible(page, 'text=Cancel', 1500);
+  await clickIfVisible(page, 'text=Join from Your Browser', 5000);
 }
 
 export async function runZoomBot({
@@ -63,9 +83,9 @@ export async function runZoomBot({
 
   await page.goto(joinUrl, { waitUntil: 'domcontentloaded' });
 
-  await clickIfVisible(page, 'text=Join from Your Browser', 8000);
-  await clickIfVisible(page, 'text=Launch Meeting', 3000);
-  await clickIfVisible(page, 'text=Join from Your Browser', 5000);
+  await saveZoomDebug(page, title, 'loaded');
+  await joinFromBrowser(page);
+  await saveZoomDebug(page, title, 'browser-join');
 
   const nameField = page
     .locator('input[placeholder*="name" i], input[aria-label*="name" i], input[type="text"]')
@@ -81,6 +101,9 @@ export async function runZoomBot({
   await clickIfVisible(page, 'button:has-text("Join")', 5000);
   await clickIfVisible(page, 'button:has-text("Join Audio by Computer")', 15000);
   await clickIfVisible(page, 'button:has-text("Join with Computer Audio")', 5000);
+  await clickIfVisible(page, 'button:has-text("Continue")', 3000);
+  await clickIfVisible(page, 'button:has-text("Got it")', 3000);
+  await saveZoomDebug(page, title, 'after-join');
 
   console.log(`Zoom bot joined or is waiting. Recording: ${outputFile}`);
   console.log('Press Ctrl+C when the meeting ends.');
