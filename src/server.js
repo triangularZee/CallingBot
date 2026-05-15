@@ -26,6 +26,7 @@ if (config.telegram.botToken) {
 
 const zoomSchema = z.object({
   joinUrl: z.string().url(),
+  botName: z.string().trim().min(1).max(80).optional(),
   title: z.string().default('zoom-meeting'),
   note: z.string().default(''),
   notifyChatId: z.string().default(''),

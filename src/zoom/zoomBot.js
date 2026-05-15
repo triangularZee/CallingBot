@@ -97,6 +97,7 @@ function toZoomWebClientUrl(joinUrl) {
 
 export async function runZoomBot({
   joinUrl,
+  botName = config.zoomBotName,
   title = 'zoom-meeting',
   note = '',
   autoTranscribe = true,
@@ -175,7 +176,7 @@ export async function runZoomBot({
 
   try {
     await nameField.waitFor({ state: 'visible', timeout: 10000 });
-    await nameField.fill(config.zoomBotName);
+    await nameField.fill(botName);
   } catch {
     // Some authenticated/browser joins do not ask for a name.
   }
