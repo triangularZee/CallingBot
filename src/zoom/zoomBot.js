@@ -28,6 +28,28 @@ async function clickButtonByName(page, namePattern, timeout = 2500) {
   }
 }
 
+async function clickButtonByText(page, text, timeout = 2500) {
+  try {
+    const locator = page.locator(`button:has-text("${text}")`).first();
+    await locator.waitFor({ state: 'visible', timeout });
+    await locator.click({ force: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function clickButtonContainingText(page, text) {
+  return page.evaluate((needle) => {
+    const normalizedNeedle = needle.toLowerCase();
+    const buttons = Array.from(document.querySelectorAll('button'));
+    const button = buttons.find((item) => (item.textContent ?? '').trim().toLowerCase().includes(normalizedNeedle));
+    if (!button) return false;
+    button.click();
+    return true;
+  }, text).catch(() => false);
+}
+
 async function saveZoomDebug(page, title, label) {
   const slug = title.replace(/[^a-z0-9가-힣_-]+/gi, '-').slice(0, 80) || 'zoom';
   const fileBase = `${Date.now()}-${slug}-${label}`;
@@ -39,10 +61,11 @@ async function saveZoomDebug(page, title, label) {
 }
 
 async function joinFromBrowser(page) {
-  await clickButtonByName(page, /join from browser/i, 8000);
-  await clickButtonByName(page, /launch meeting/i, 3000);
+  await clickButtonByText(page, 'Join from browser', 8000) || await clickButtonByName(page, /join from browser/i, 1000) || await clickButtonContainingText(page, 'Join from browser');
+  await clickButtonByText(page, 'Launch Meeting', 3000) || await clickButtonByName(page, /launch meeting/i, 1000) || await clickButtonContainingText(page, 'Launch Meeting');
   await clickIfVisible(page, 'text=Cancel', 1500);
-  await clickButtonByName(page, /join from browser/i, 5000);
+  await clickButtonByText(page, 'Join from browser', 5000) || await clickButtonByName(page, /join from browser/i, 1000) || await clickButtonContainingText(page, 'Join from browser');
+  await page.waitForTimeout(3000);
 }
 
 export async function runZoomBot({
