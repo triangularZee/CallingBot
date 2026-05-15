@@ -68,6 +68,21 @@ async function clickZoomAudioJoin(page) {
   return false;
 }
 
+function zoomNameField(page) {
+  return page
+    .locator('input[placeholder*="name" i], input[aria-label*="name" i], input[type="text"]')
+    .first();
+}
+
+async function isNamePromptVisible(page, timeout = 1500) {
+  try {
+    await zoomNameField(page).waitFor({ state: 'visible', timeout });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function saveZoomDebug(page, title, label) {
   const slug = title.replace(/[^a-z0-9가-힣_-]+/gi, '-').slice(0, 80) || 'zoom';
   const fileBase = `${Date.now()}-${slug}-${label}`;
@@ -79,11 +94,25 @@ async function saveZoomDebug(page, title, label) {
 }
 
 async function joinFromBrowser(page) {
-  await clickButtonByText(page, 'Join from browser', 8000) || await clickButtonByName(page, /join from browser/i, 1000) || await clickButtonContainingText(page, 'Join from browser');
-  await clickButtonByText(page, 'Launch Meeting', 3000) || await clickButtonByName(page, /launch meeting/i, 1000) || await clickButtonContainingText(page, 'Launch Meeting');
-  await clickIfVisible(page, 'text=Cancel', 1500);
-  await clickButtonByText(page, 'Join from browser', 5000) || await clickButtonByName(page, /join from browser/i, 1000) || await clickButtonContainingText(page, 'Join from browser');
-  await page.waitForTimeout(3000);
+  if (await isNamePromptVisible(page, 2500)) return;
+
+  await clickButtonByText(page, 'Join from browser', 2500)
+    || await clickButtonByName(page, /join from browser/i, 800)
+    || await clickButtonContainingText(page, 'Join from browser');
+
+  if (await isNamePromptVisible(page, 1500)) return;
+
+  await clickButtonByText(page, 'Launch Meeting', 1500)
+    || await clickButtonByName(page, /launch meeting/i, 800)
+    || await clickButtonContainingText(page, 'Launch Meeting');
+
+  await clickIfVisible(page, 'text=Cancel', 800);
+
+  await clickButtonByText(page, 'Join from browser', 2500)
+    || await clickButtonByName(page, /join from browser/i, 800)
+    || await clickButtonContainingText(page, 'Join from browser');
+
+  await isNamePromptVisible(page, 3000);
 }
 
 function toZoomWebClientUrl(joinUrl) {
@@ -106,6 +135,7 @@ export async function runZoomBot({
 }) {
   const outputFile = recordingPath(title, 'wav');
   let recorder = null;
+  let maxTimer = null;
 
   const browser = await chromium.launch({
     headless: config.zoomHeadless,
@@ -152,9 +182,6 @@ export async function runZoomBot({
   });
 
   const maxDurationMs = Math.max(1, Number(maxMinutes)) * 60 * 1000;
-  const maxTimer = setTimeout(() => {
-    stop().catch((error) => console.error('Zoom bot max duration stop failed:', error));
-  }, maxDurationMs);
 
   const webClientUrl = toZoomWebClientUrl(joinUrl);
   console.log(`Zoom web client URL: ${webClientUrl}`);
@@ -170,9 +197,7 @@ export async function runZoomBot({
     throw new Error('Zoom browser join did not open. The meeting may block web client access, or Zoom changed the join flow.');
   }
 
-  const nameField = page
-    .locator('input[placeholder*="name" i], input[aria-label*="name" i], input[type="text"]')
-    .first();
+  const nameField = zoomNameField(page);
 
   try {
     await nameField.waitFor({ state: 'visible', timeout: 10000 });
@@ -190,11 +215,14 @@ export async function runZoomBot({
   await saveZoomDebug(page, title, 'after-join');
 
   recorder = startFfmpegRecorder(outputFile);
+  maxTimer = setTimeout(() => {
+    stop().catch((error) => console.error('Zoom bot max duration stop failed:', error));
+  }, maxDurationMs);
 
   console.log(`Zoom bot joined or is waiting. Recording: ${outputFile}`);
   console.log('Press Ctrl+C when the meeting ends.');
 
   await page.waitForEvent('close').catch(() => {});
-  clearTimeout(maxTimer);
+  if (maxTimer) clearTimeout(maxTimer);
   return stop();
 }
