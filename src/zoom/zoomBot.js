@@ -52,11 +52,11 @@ async function clickButtonContainingText(page, text) {
 
 async function clickZoomAudioJoin(page) {
   const candidates = [
-    () => clickButtonByName(page, /join audio by computer/i, 8000),
-    () => clickButtonByName(page, /join with computer audio/i, 4000),
-    () => clickButtonByName(page, /computer audio/i, 3000),
-    () => clickButtonByText(page, 'Join Audio by Computer', 3000),
-    () => clickButtonByText(page, 'Join with Computer Audio', 3000),
+    () => clickButtonByName(page, /join audio by computer/i, 1500),
+    () => clickButtonByName(page, /join with computer audio/i, 1200),
+    () => clickButtonByName(page, /computer audio/i, 1000),
+    () => clickButtonByText(page, 'Join Audio by Computer', 1000),
+    () => clickButtonByText(page, 'Join with Computer Audio', 1000),
     () => clickButtonContainingText(page, 'Join Audio by Computer'),
     () => clickButtonContainingText(page, 'Join with Computer Audio')
   ];
@@ -207,11 +207,10 @@ export async function runZoomBot({
   }
 
   await clickButtonByName(page, /^join$/i, 5000);
-  await page.waitForTimeout(3000);
+  await page.waitForTimeout(1500);
   await clickZoomAudioJoin(page);
-  await clickButtonByName(page, /continue/i, 3000);
-  await clickButtonByName(page, /got it/i, 3000);
-  await clickZoomAudioJoin(page);
+  await clickButtonByName(page, /continue/i, 1000);
+  await clickButtonByName(page, /got it/i, 1000);
   await saveZoomDebug(page, title, 'after-join');
 
   recorder = startFfmpegRecorder(outputFile);
