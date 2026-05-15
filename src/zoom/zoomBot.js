@@ -50,6 +50,24 @@ async function clickButtonContainingText(page, text) {
   }, text).catch(() => false);
 }
 
+async function clickZoomAudioJoin(page) {
+  const candidates = [
+    () => clickButtonByName(page, /join audio by computer/i, 8000),
+    () => clickButtonByName(page, /join with computer audio/i, 4000),
+    () => clickButtonByName(page, /computer audio/i, 3000),
+    () => clickButtonByText(page, 'Join Audio by Computer', 3000),
+    () => clickButtonByText(page, 'Join with Computer Audio', 3000),
+    () => clickButtonContainingText(page, 'Join Audio by Computer'),
+    () => clickButtonContainingText(page, 'Join with Computer Audio')
+  ];
+
+  for (const candidate of candidates) {
+    if (await candidate()) return true;
+  }
+
+  return false;
+}
+
 async function saveZoomDebug(page, title, label) {
   const slug = title.replace(/[^a-z0-9가-힣_-]+/gi, '-').slice(0, 80) || 'zoom';
   const fileBase = `${Date.now()}-${slug}-${label}`;
@@ -90,10 +108,20 @@ export async function runZoomBot({
 
   const browser = await chromium.launch({
     headless: config.zoomHeadless,
-    args: ['--use-fake-ui-for-media-stream']
+    args: [
+      '--use-fake-ui-for-media-stream',
+      '--use-fake-device-for-media-stream',
+      '--autoplay-policy=no-user-gesture-required',
+      '--no-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu'
+    ]
   });
 
-  const page = await browser.newPage();
+  const context = await browser.newContext({
+    permissions: ['microphone', 'camera']
+  });
+  const page = await context.newPage();
   let stopped = false;
 
   async function stop() {
@@ -129,6 +157,7 @@ export async function runZoomBot({
 
   const webClientUrl = toZoomWebClientUrl(joinUrl);
   console.log(`Zoom web client URL: ${webClientUrl}`);
+  await context.grantPermissions(['microphone', 'camera'], { origin: new URL(webClientUrl).origin }).catch(() => {});
   await page.goto(webClientUrl, { waitUntil: 'domcontentloaded' });
 
   await saveZoomDebug(page, title, 'loaded');
@@ -152,10 +181,11 @@ export async function runZoomBot({
   }
 
   await clickButtonByName(page, /^join$/i, 5000);
-  await clickButtonByName(page, /join audio by computer/i, 15000);
-  await clickButtonByName(page, /join with computer audio/i, 5000);
+  await page.waitForTimeout(3000);
+  await clickZoomAudioJoin(page);
   await clickButtonByName(page, /continue/i, 3000);
   await clickButtonByName(page, /got it/i, 3000);
+  await clickZoomAudioJoin(page);
   await saveZoomDebug(page, title, 'after-join');
 
   recorder = startFfmpegRecorder(outputFile);
