@@ -152,6 +152,12 @@ function toZoomWebClientUrl(joinUrl) {
   return url.toString();
 }
 
+function normalizeBotName(value) {
+  const name = String(value ?? '').trim();
+  if (!name || /^[?\s]+$/.test(name)) return config.zoomBotName;
+  return name.slice(0, 80);
+}
+
 export async function runZoomBot({
   joinUrl,
   botName = config.zoomBotName,
@@ -162,6 +168,7 @@ export async function runZoomBot({
   silenceTimeout = 120,
   onDone = null
 }) {
+  botName = normalizeBotName(botName);
   const outputFile = recordingPath(title, 'wav');
   let recorder = null;
   let maxTimer = null;
