@@ -24,6 +24,15 @@ export const config = {
   zoomSilenceNoiseDb: Number(process.env.ZOOM_SILENCE_NOISE_DB ?? -30),
   zoomRecordGainDb: Number(process.env.ZOOM_RECORD_GAIN_DB ?? 24),
   zoomHeadless: (process.env.ZOOM_HEADLESS ?? 'false').toLowerCase() === 'true',
+  zoom: {
+    clientId: process.env.ZOOM_CLIENT_ID ?? '',
+    clientSecret: process.env.ZOOM_CLIENT_SECRET ?? '',
+    oauthRedirectUri: process.env.ZOOM_OAUTH_REDIRECT_URI ?? '',
+    oauthTokenPath: path.resolve(rootDir, process.env.ZOOM_OAUTH_TOKEN_PATH ?? './outputs/zoom-oauth-token.json'),
+    webhookSecretToken: process.env.ZOOM_WEBHOOK_SECRET_TOKEN ?? '',
+    rtmsAutoStart: (process.env.ZOOM_RTMS_AUTO_START ?? 'false').toLowerCase() === 'true',
+    rtmsNotifyChatId: process.env.ZOOM_RTMS_NOTIFY_CHAT_ID ?? ''
+  },
   twilio: {
     accountSid: process.env.TWILIO_ACCOUNT_SID ?? '',
     authToken: process.env.TWILIO_AUTH_TOKEN ?? '',

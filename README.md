@@ -43,6 +43,49 @@ Outputs:
 Zoom recording stops passively when the meeting ends, the Zoom page closes, or the process is stopped with `Ctrl+C`. It does not stop on silence or elapsed duration.
 On Linux, `npm run start:audio` routes browser output to `zoom_sink` for recording and gives Zoom Web Client a silent PulseAudio virtual microphone. This prevents Zoom's "Cannot detect your microphone" state without relying on Chromium's finite fake audio file. Set `ZOOM_USE_FAKE_MIC_FILE=true` only as a fallback.
 
+## Zoom Official App / RTMS
+
+Zoom can block automated Web Client joins. For a service-style visible bot, use a Zoom Marketplace General app with OAuth, webhooks, and Realtime Media Streams (RTMS) instead of browser automation.
+
+Official docs:
+
+- [Zoom RTMS overview](https://developers.zoom.us/docs/rtms/meetings/)
+- [Zoom RTMS quickstart](https://zoom-developer-doc.zoomapp.cloud/docs/rtms/meetings/quickstart/)
+- [Zoom webhook validation](https://developers.zoom.us/docs/api/webhooks/)
+
+Configure `.env`:
+
+```env
+PUBLIC_BASE_URL=https://your-domain.example
+ZOOM_CLIENT_ID=...
+ZOOM_CLIENT_SECRET=...
+ZOOM_OAUTH_REDIRECT_URI=https://your-domain.example/zoom/oauth/callback
+ZOOM_WEBHOOK_SECRET_TOKEN=...
+ZOOM_RTMS_AUTO_START=true
+ZOOM_RTMS_NOTIFY_CHAT_ID=
+```
+
+In Zoom Marketplace:
+
+1. Create a General app.
+2. Add OAuth redirect URL: `https://your-domain.example/zoom/oauth/callback`.
+3. Add Event Notification Endpoint URL: `https://your-domain.example/zoom/rtms/webhook`.
+4. Enable RTMS features and add the meeting audio/transcript scopes required by your app. RTMS may require Zoom account enablement before it appears in Marketplace settings.
+5. Install the app locally and approve the requested scopes.
+6. Enable realtime content sharing / auto-start settings in the Zoom account or user settings as required by Zoom.
+
+Connect/check the app:
+
+```http
+GET /zoom/oauth/start
+GET /zoom/oauth/status
+GET /zoom/rtms/status
+```
+
+The RTMS webhook accepts `endpoint.url_validation`, verifies Zoom's `x-zm-signature`, starts the official RTMS SDK when `meeting.rtms_started` arrives, stores RTMS transcripts in `outputs/`, and summarizes them with the existing OpenAI pipeline when `meeting.rtms_stopped` arrives.
+
+Note: `@zoom/rtms` currently supports Linux/macOS Node runtimes, not Windows. Run RTMS on the EC2 Ubuntu service.
+
 ## Phone Conference Bot
 
 Start the webhook server:
