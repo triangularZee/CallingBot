@@ -479,6 +479,11 @@ export async function runZoomBot({
     console.warn(`Zoom bot aborting: ${stopReason}`);
     if (recordingDebugTimer) clearTimeout(recordingDebugTimer);
     stopMeetingEndWatcher?.();
+    if (!page.isClosed()) {
+      await saveZoomDebug(page, title, 'error').catch((debugError) => {
+        console.warn(`Zoom error debug screenshot failed: ${debugError.message}`);
+      });
+    }
     if (recorder) await recorder.stop(stopReason).catch(() => {});
     await browser.close().catch(() => {});
   }
