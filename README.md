@@ -25,7 +25,7 @@ ffmpeg -list_devices true -f dshow -i dummy
 ```
 
 For Zoom recording, use a loopback/virtual device such as Stereo Mix or VB-CABLE so the bot captures meeting audio.
-If Zoom Web Client audio is too quiet, set `ZOOM_RECORD_GAIN_DB` in `.env`. The recorder applies this gain after silence detection and limits peaks to reduce clipping.
+If Zoom Web Client audio is too quiet, set `ZOOM_RECORD_GAIN_DB` in `.env`. The recorder applies this gain and limits peaks to reduce clipping.
 
 ## Zoom Bot
 
@@ -40,7 +40,7 @@ Outputs:
 - `outputs/*-transcript.txt`
 - `outputs/*-gemini-summary.md`
 
-Stop with `Ctrl+C`. The process finalizes transcription after the browser/recorder stops.
+Zoom recording stops passively when the meeting ends, the Zoom page closes, or the process is stopped with `Ctrl+C`. It does not stop on silence or elapsed duration.
 
 ## Phone Conference Bot
 

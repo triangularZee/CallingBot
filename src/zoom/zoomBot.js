@@ -212,12 +212,9 @@ function startMeetingEndWatcher(page, onEnded) {
     { label: 'korean-disconnected', pattern: /회의 연결이 끊/ },
     { label: 'korean-disconnected', pattern: /미팅 연결이 끊/ }
   ];
-  let readFailures = 0;
-
   const timer = setInterval(async () => {
     try {
       const text = await page.locator('body').innerText({ timeout: 1000 });
-      readFailures = 0;
       const matched = endedPatterns.find(({ pattern }) => pattern.test(text));
       if (matched) {
         const compact = text.replace(/\s+/g, ' ').trim().slice(0, 240);
@@ -225,12 +222,7 @@ function startMeetingEndWatcher(page, onEnded) {
         onEnded();
       }
     } catch (error) {
-      readFailures += 1;
-      console.warn(`Zoom meeting-end watcher read failed (${readFailures}): ${error.message}`);
-      if (readFailures >= 6) {
-        console.warn('Zoom meeting-end watcher stopping after repeated read failures.');
-        onEnded();
-      }
+      console.warn(`Zoom meeting-end watcher read failed: ${error.message}`);
     }
   }, 10_000);
 
@@ -307,15 +299,12 @@ export async function runZoomBot({
   title = 'zoom-meeting',
   note = '',
   autoTranscribe = true,
-  maxMinutes = 120,
-  silenceTimeout = 120,
   onJoined = null,
   onDone = null
 }) {
   botName = normalizeBotName(botName);
   const outputFile = recordingPath(title, 'wav');
   let recorder = null;
-  let maxTimer = null;
   let stopMeetingEndWatcher = null;
   let stopReason = 'manual';
 
@@ -342,7 +331,6 @@ export async function runZoomBot({
     stopped = true;
     stopReason = reason;
     console.log(`Zoom bot stopping: ${stopReason}`);
-    if (maxTimer) clearTimeout(maxTimer);
     stopMeetingEndWatcher?.();
     if (recorder) await recorder.stop();
     await browser.close().catch(() => {});
@@ -366,8 +354,6 @@ export async function runZoomBot({
     console.log(JSON.stringify(result, null, 2));
     process.exit(0);
   });
-
-  const maxDurationMs = Math.max(1, Number(maxMinutes)) * 60 * 1000;
 
   const webClientUrl = toZoomWebClientUrl(joinUrl);
   console.log(`Zoom web client URL: ${webClientUrl}`);
@@ -418,19 +404,10 @@ export async function runZoomBot({
     stop('meeting-ended').catch((error) => console.error('Zoom meeting-end stop failed:', error));
   });
 
-  recorder = startFfmpegRecorder(outputFile, {
-    silenceTimeout,
-    onSilence: () => {
-      stop('silence-timeout').catch((error) => console.error('Zoom silence stop failed:', error));
-    }
-  });
-  maxTimer = setTimeout(() => {
-    stop('max-duration').catch((error) => console.error('Zoom bot max duration stop failed:', error));
-  }, maxDurationMs);
+  recorder = startFfmpegRecorder(outputFile);
 
   console.log(`Zoom bot joined or is waiting. Recording: ${outputFile}`);
-  console.log(`Zoom bot will stop after ${silenceTimeout}s of silence.`);
-  console.log('Press Ctrl+C when the meeting ends.');
+  console.log('Zoom bot will record until the meeting ends, the Zoom page closes, or the process is stopped.');
 
   await page.waitForEvent('close').catch(() => {});
   return stop('page-closed');
