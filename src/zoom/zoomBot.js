@@ -412,14 +412,22 @@ export async function runZoomBot({
   let recorder = null;
   let stopMeetingEndWatcher = null;
   let stopReason = 'manual';
-  const silentMicFile = await ensureSilentMicFile();
+  const silentMicFile = config.zoomUseFakeMicFile ? await ensureSilentMicFile() : null;
+  const mediaArgs = config.zoomUseFakeMicFile
+    ? [
+      '--use-fake-device-for-media-stream',
+      `--use-file-for-fake-audio-capture=${silentMicFile}`
+    ]
+    : [
+      '--alsa-input-device=pulse',
+      '--alsa-output-device=pulse'
+    ];
 
   const browser = await chromium.launch({
     headless: config.zoomHeadless,
     args: [
       '--use-fake-ui-for-media-stream',
-      '--use-fake-device-for-media-stream',
-      `--use-file-for-fake-audio-capture=${silentMicFile}`,
+      ...mediaArgs,
       '--autoplay-policy=no-user-gesture-required',
       '--no-sandbox',
       '--disable-dev-shm-usage',
