@@ -1,6 +1,7 @@
 import twilio from 'twilio';
 import { WebSocketServer } from 'ws';
 import { config } from '../config.js';
+import { sendTelegramMessage } from '../telegram/notify.js';
 
 const MULAW_BIAS = 0x84;
 const MULAW_CLIP = 32635;
@@ -52,17 +53,56 @@ export function attachSilenceMonitor(server) {
   wss.on('connection', (ws) => {
     const state = {
       callSid: '',
+      title: 'phone-conference',
+      notifyChatId: '',
       silenceTimeoutMs: 120_000,
       silenceThreshold: 180,
       lastVoiceAt: Date.now(),
+      notifiedStart: false,
       ended: false
     };
+
+    async function notifyCallConnected() {
+      if (!state.notifyChatId || state.notifiedStart) return;
+      state.notifiedStart = true;
+      try {
+        await sendTelegramMessage(
+          state.notifyChatId,
+          [
+            `*${state.title}*`,
+            '전화 통화 연결 완료.',
+            `callSid: ${state.callSid || '(unknown)'}`,
+            `무음 종료: ${Math.round(state.silenceTimeoutMs / 1000)}초`,
+            '녹음 및 오디오 감시를 시작합니다.'
+          ].join('\n')
+        );
+      } catch (error) {
+        console.error('Failed to notify phone call connection:', error);
+      }
+    }
+
+    async function notifySilentHangup() {
+      if (!state.notifyChatId) return;
+      try {
+        await sendTelegramMessage(
+          state.notifyChatId,
+          [
+            `*${state.title}*`,
+            `무음 ${Math.round(state.silenceTimeoutMs / 1000)}초가 지나 통화를 종료합니다.`,
+            state.callSid ? `callSid: ${state.callSid}` : ''
+          ].filter(Boolean).join('\n')
+        );
+      } catch (error) {
+        console.error('Failed to notify silent call hangup:', error);
+      }
+    }
 
     async function endSilentCall() {
       if (state.ended || !state.callSid) return;
       state.ended = true;
       try {
         await twilioClient().calls(state.callSid).update({ status: 'completed' });
+        await notifySilentHangup();
       } catch (error) {
         console.error('Failed to hang up silent call:', error);
       } finally {
@@ -85,11 +125,14 @@ export function attachSilenceMonitor(server) {
       if (event.event === 'start') {
         state.callSid = event.start?.callSid ?? '';
         const params = event.start?.customParameters ?? {};
+        state.title = String(params.title ?? 'phone-conference');
+        state.notifyChatId = String(params.notifyChatId ?? '');
         const seconds = Number(params.silenceTimeout ?? 120);
         if (Number.isFinite(seconds)) state.silenceTimeoutMs = Math.max(1, Math.min(seconds, 600)) * 1000;
         const threshold = Number(params.silenceThreshold ?? 180);
         if (Number.isFinite(threshold)) state.silenceThreshold = Math.max(1, threshold);
         state.lastVoiceAt = Date.now();
+        await notifyCallConnected();
         return;
       }
 
