@@ -115,6 +115,33 @@ async function assertZoomJoinable(page) {
   }
 }
 
+function isWaitingForHost(text) {
+  return [
+    /waiting for the host to start/i,
+    /please wait.*host/i,
+    /host has another meeting in progress/i,
+    /meeting host will let you in soon/i,
+    /wait.*meeting host/i
+  ].some((pattern) => pattern.test(text));
+}
+
+async function waitForHostToStart(page, { timeoutMs = 60 * 60 * 1000 } = {}) {
+  const startedAt = Date.now();
+
+  while (true) {
+    await assertZoomJoinable(page);
+    const text = await page.locator('body').innerText({ timeout: 3000 }).catch(() => '');
+    if (!isWaitingForHost(text)) return;
+
+    if (Date.now() - startedAt > timeoutMs) {
+      throw new Error('Zoom meeting did not start before host wait timeout. Recording was not started.');
+    }
+
+    console.log('Zoom meeting is waiting for host; recording has not started yet.');
+    await page.waitForTimeout(10_000);
+  }
+}
+
 function startMeetingEndWatcher(page, onEnded) {
   const endedPatterns = [
     /meeting has been ended/i,
@@ -278,6 +305,7 @@ export async function runZoomBot({
   await clickButtonByName(page, /got it/i, 1000);
   await saveZoomDebug(page, title, 'after-join');
   await assertZoomJoinable(page);
+  await waitForHostToStart(page);
 
   stopMeetingEndWatcher = startMeetingEndWatcher(page, () => {
     stop('meeting-ended').catch((error) => console.error('Zoom meeting-end stop failed:', error));
