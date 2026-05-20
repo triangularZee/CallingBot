@@ -552,10 +552,12 @@ export async function runZoomBot({
 
     console.log(`Zoom bot joined or is waiting. Recording: ${outputFile}`);
     console.log('Zoom bot will record until the meeting ends, the Zoom page closes, or the process is stopped.');
+    console.log('Zoom bot is waiting for page close without a Playwright timeout.');
 
-    await page.waitForEvent('close').catch((error) => {
+    await page.waitForEvent('close', { timeout: 0 }).catch((error) => {
       console.warn(`Zoom page close wait failed: ${error.message}`);
     });
+    if (stopped) return null;
     return stop('page-closed');
   } catch (error) {
     await abortAfterError(error);
