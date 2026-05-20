@@ -200,30 +200,68 @@ async function waitForHostToStart(page, { timeoutMs = 60 * 60 * 1000 } = {}) {
 
 function startMeetingEndWatcher(page, onEnded) {
   const endedPatterns = [
-    /meeting has been ended/i,
-    /host ended this meeting/i,
-    /this meeting has ended/i,
-    /you have been removed/i,
-    /removed from the meeting/i,
-    /you are disconnected from the meeting/i,
-    /meeting disconnected/i,
-    /회의가 종료/i,
-    /미팅이 종료/i,
-    /연결이 끊/i
+    { label: 'meeting-ended', pattern: /\bmeeting has been ended\b/i },
+    { label: 'host-ended', pattern: /\bhost ended this meeting\b/i },
+    { label: 'this-meeting-ended', pattern: /\bthis meeting has ended\b/i },
+    { label: 'removed-from-meeting', pattern: /\byou have been removed\b/i },
+    { label: 'removed-from-meeting', pattern: /\bremoved from the meeting\b/i },
+    { label: 'disconnected-from-meeting', pattern: /\byou are disconnected from the meeting\b/i },
+    { label: 'meeting-disconnected', pattern: /\bmeeting disconnected\b/i },
+    { label: 'korean-meeting-ended', pattern: /회의가 종료/ },
+    { label: 'korean-meeting-ended', pattern: /미팅이 종료/ },
+    { label: 'korean-disconnected', pattern: /회의 연결이 끊/ },
+    { label: 'korean-disconnected', pattern: /미팅 연결이 끊/ }
   ];
+  let readFailures = 0;
 
   const timer = setInterval(async () => {
     try {
       const text = await page.locator('body').innerText({ timeout: 1000 });
-      if (endedPatterns.some((pattern) => pattern.test(text))) {
+      readFailures = 0;
+      const matched = endedPatterns.find(({ pattern }) => pattern.test(text));
+      if (matched) {
+        const compact = text.replace(/\s+/g, ' ').trim().slice(0, 240);
+        console.log(`Zoom meeting-end watcher matched: ${matched.label}. Text: ${compact}`);
         onEnded();
       }
-    } catch {
-      onEnded();
+    } catch (error) {
+      readFailures += 1;
+      console.warn(`Zoom meeting-end watcher read failed (${readFailures}): ${error.message}`);
+      if (readFailures >= 6) {
+        console.warn('Zoom meeting-end watcher stopping after repeated read failures.');
+        onEnded();
+      }
     }
   }, 10_000);
 
   return () => clearInterval(timer);
+}
+
+async function dismissZoomPostJoinDialogs(page) {
+  const candidates = [
+    () => clickButtonByName(page, /^ok$/i, 1200),
+    () => clickButtonByText(page, 'OK', 1000),
+    () => clickButtonByName(page, /got it/i, 1000),
+    () => clickButtonByName(page, /continue/i, 1000)
+  ];
+
+  for (const candidate of candidates) {
+    if (await candidate()) {
+      await page.waitForTimeout(500);
+      return true;
+    }
+  }
+
+  const clicked = await page.evaluate(() => {
+    const buttons = Array.from(document.querySelectorAll('button'));
+    const button = buttons.find((item) => /^(ok|got it|continue)$/i.test((item.textContent ?? '').trim()));
+    if (!button) return false;
+    button.click();
+    return true;
+  }).catch(() => false);
+
+  if (clicked) await page.waitForTimeout(500);
+  return clicked;
 }
 
 async function joinFromBrowser(page) {
@@ -361,9 +399,11 @@ export async function runZoomBot({
   await clickZoomAudioJoin(page);
   await clickButtonByName(page, /continue/i, 1000);
   await clickButtonByName(page, /got it/i, 1000);
+  await dismissZoomPostJoinDialogs(page);
   await saveZoomDebug(page, title, 'after-join');
   await assertZoomJoinable(page);
   await waitForHostToStart(page);
+  await dismissZoomPostJoinDialogs(page);
   const muteState = await ensureZoomMicrophoneMuted(page);
 
   if (onJoined) {
