@@ -1,8 +1,9 @@
-import { chromium } from 'playwright';
 import { config } from '../config.js';
 import { recordingPath } from '../utils/files.js';
 import { processRecording } from '../pipeline/openaiPipeline.js';
 import { startFfmpegRecorder } from './ffmpegRecorder.js';
+import { launchStealthZoomBrowser } from './stealthLaunch.js';
+import { humanWait, humanClickLocator, jitterMs, resolveBotName } from '../utils/human.js';
 import path from 'node:path';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
@@ -429,20 +430,27 @@ function toZoomWebClientUrl(joinUrl) {
 
 function normalizeBotName(value) {
   const name = String(value ?? '').trim();
-  if (!name || /^[?\s]+$/.test(name)) return config.zoomBotName;
+  if (!name || /^[?\s]+$/.test(name)) return '';
   return name.slice(0, 80);
 }
 
 export async function runZoomBot({
   joinUrl,
-  botName = config.zoomBotName,
+  botName,
   title = 'zoom-meeting',
   note = '',
   autoTranscribe = true,
   onJoined = null,
   onDone = null
 }) {
-  botName = normalizeBotName(botName);
+  const explicitName = normalizeBotName(botName);
+  botName = resolveBotName({
+    explicit: explicitName,
+    pool: config.zoomBotNamePool,
+    fallback: config.zoomBotName,
+    randomize: config.zoomRandomizeName && !config.zoomBotName
+  }) || '신한 박시은';
+  console.log(`Zoom bot name for this run: ${botName}`);
   const outputFile = recordingPath(title, 'wav');
   let recorder = null;
   let stopMeetingEndWatcher = null;
@@ -461,23 +469,7 @@ export async function runZoomBot({
       ]
       : [];
 
-  const browser = await chromium.launch({
-    headless: config.zoomHeadless,
-    args: [
-      '--use-fake-ui-for-media-stream',
-      ...mediaArgs,
-      '--autoplay-policy=no-user-gesture-required',
-      '--no-sandbox',
-      '--disable-dev-shm-usage',
-      '--ignore-gpu-blocklist',
-      '--enable-webgl',
-      '--use-gl=swiftshader'
-    ]
-  });
-
-  const context = await browser.newContext({
-    permissions: ['microphone', 'camera']
-  });
+  const { browser, context } = await launchStealthZoomBrowser({ mediaArgs });
   const page = await context.newPage();
   let stopped = false;
   let recordingDebugTimer = null;
@@ -562,15 +554,26 @@ export async function runZoomBot({
 
     try {
       await nameField.waitFor({ state: 'visible', timeout: 10000 });
-      await nameField.fill(botName);
+      // Type the name with per-character delay to look human
+      await nameField.fill('');
+      await nameField.type(botName, { delay: jitterMs(40, 140) });
+      await humanWait(page, 200, 600);
     } catch {
       // Some authenticated/browser joins do not ask for a name.
     }
 
-    await clickButtonByName(page, /^join$/i, 5000);
-    await page.waitForTimeout(2000);
+    // Click Join with humanized delays
+    const joinBtn = page.getByRole('button', { name: /^join$/i }).first();
+    try {
+      await joinBtn.waitFor({ state: 'visible', timeout: 5000 });
+      await humanClickLocator(page, joinBtn);
+    } catch {
+      await clickButtonByName(page, /^join$/i, 5000);
+    }
+    await humanWait(page, 1500, 2800);
     await assertZoomJoinable(page);
     await clickZoomAudioJoin(page);
+    await humanWait(page, 400, 900);
     await assertZoomJoinable(page);
     await clickButtonByName(page, /continue/i, 1000);
     await clickButtonByName(page, /got it/i, 1000);

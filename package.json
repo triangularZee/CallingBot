@@ -9,6 +9,7 @@
     "telegram": "node src/telegram/bot.js",
     "telegram:set-webhook": "node src/telegram/setWebhook.js",
     "zoom": "node src/zoom/runZoomBot.js",
+    "zoom:login": "node src/zoom/zoomLogin.js",
     "zoom:desktop": "node src/zoom/runZoomDesktopRecorder.js",
     "call": "node src/call/runCallBot.js",
     "transcribe": "node src/pipeline/processRecording.js",
@@ -21,6 +22,8 @@
     "grammy": "^1.38.4",
     "openai": "^4.78.1",
     "playwright": "^1.49.1",
+    "playwright-extra": "^4.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
     "twilio": "^5.4.0",
     "ws": "^8.20.1",
     "zod": "^3.24.1"
