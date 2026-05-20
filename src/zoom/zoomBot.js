@@ -68,6 +68,41 @@ async function clickZoomAudioJoin(page) {
   return false;
 }
 
+async function ensureSilentMicFile() {
+  const filePath = path.join(config.outputDir, 'zoom-silent-mic.wav');
+
+  try {
+    const stat = await fsp.stat(filePath);
+    if (stat.size > 44) return filePath;
+  } catch {}
+
+  await fsp.mkdir(config.outputDir, { recursive: true });
+
+  const sampleRate = 48_000;
+  const seconds = 60;
+  const channels = 1;
+  const bytesPerSample = 2;
+  const dataSize = sampleRate * seconds * channels * bytesPerSample;
+  const buffer = Buffer.alloc(44 + dataSize);
+
+  buffer.write('RIFF', 0);
+  buffer.writeUInt32LE(36 + dataSize, 4);
+  buffer.write('WAVE', 8);
+  buffer.write('fmt ', 12);
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20);
+  buffer.writeUInt16LE(channels, 22);
+  buffer.writeUInt32LE(sampleRate, 24);
+  buffer.writeUInt32LE(sampleRate * channels * bytesPerSample, 28);
+  buffer.writeUInt16LE(channels * bytesPerSample, 32);
+  buffer.writeUInt16LE(bytesPerSample * 8, 34);
+  buffer.write('data', 36);
+  buffer.writeUInt32LE(dataSize, 40);
+
+  await fsp.writeFile(filePath, buffer);
+  return filePath;
+}
+
 async function isButtonVisibleByName(page, namePattern, timeout = 500) {
   try {
     const locator = page.getByRole('button', { name: namePattern }).first();
@@ -307,12 +342,14 @@ export async function runZoomBot({
   let recorder = null;
   let stopMeetingEndWatcher = null;
   let stopReason = 'manual';
+  const silentMicFile = await ensureSilentMicFile();
 
   const browser = await chromium.launch({
     headless: config.zoomHeadless,
     args: [
       '--use-fake-ui-for-media-stream',
       '--use-fake-device-for-media-stream',
+      `--use-file-for-fake-audio-capture=${silentMicFile}`,
       '--autoplay-policy=no-user-gesture-required',
       '--no-sandbox',
       '--disable-dev-shm-usage',
