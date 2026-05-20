@@ -149,6 +149,51 @@ async function saveZoomDebug(page, title, label) {
   console.log(`Zoom debug saved: ${screenshotPath}`);
 }
 
+async function ensureSilentMicFile() {
+  const sampleRate = 16000;
+  const bytesPerSample = 2;
+  const channels = 1;
+  const seconds = Math.max(60, Math.trunc(Number(config.zoomSilentMicSeconds) || 8 * 60 * 60));
+  const dataSize = sampleRate * bytesPerSample * channels * seconds;
+  const riffSize = 36 + dataSize;
+
+  if (riffSize > 0xffffffff) {
+    throw new Error('ZOOM_SILENT_MIC_SECONDS is too large for a WAV fake microphone file');
+  }
+
+  const file = path.join(config.outputDir, 'zoom-silent-mic.wav');
+  const expectedSize = 44 + dataSize;
+  const existing = await fsp.stat(file).catch(() => null);
+  if (existing?.size === expectedSize) return file;
+
+  await fsp.mkdir(path.dirname(file), { recursive: true });
+  const header = Buffer.alloc(44);
+  header.write('RIFF', 0);
+  header.writeUInt32LE(riffSize, 4);
+  header.write('WAVE', 8);
+  header.write('fmt ', 12);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(channels, 22);
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(sampleRate * channels * bytesPerSample, 28);
+  header.writeUInt16LE(channels * bytesPerSample, 32);
+  header.writeUInt16LE(8 * bytesPerSample, 34);
+  header.write('data', 36);
+  header.writeUInt32LE(dataSize, 40);
+
+  const handle = await fsp.open(file, 'w');
+  try {
+    await handle.write(header, 0, header.length, 0);
+    await handle.truncate(expectedSize);
+  } finally {
+    await handle.close();
+  }
+
+  console.log(`Zoom silent microphone file ready: ${file} (${seconds}s)`);
+  return file;
+}
+
 async function assertZoomJoinable(page) {
   const errorPatterns = [
     /meeting link is invalid/i,
@@ -307,11 +352,14 @@ export async function runZoomBot({
   let recorder = null;
   let stopMeetingEndWatcher = null;
   let stopReason = 'manual';
+  const silentMicFile = await ensureSilentMicFile();
 
   const browser = await chromium.launch({
     headless: config.zoomHeadless,
     args: [
       '--use-fake-ui-for-media-stream',
+      '--use-fake-device-for-media-stream',
+      `--use-file-for-fake-audio-capture=${silentMicFile}`,
       '--autoplay-policy=no-user-gesture-required',
       '--no-sandbox',
       '--disable-dev-shm-usage',
@@ -325,13 +373,25 @@ export async function runZoomBot({
   const page = await context.newPage();
   let stopped = false;
 
+  browser.on('disconnected', () => {
+    console.warn('Zoom browser event: disconnected');
+  });
+
+  page.on('close', () => {
+    console.warn('Zoom page event: close');
+  });
+
+  page.on('crash', () => {
+    console.error('Zoom page event: crash');
+  });
+
   async function stop(reason = 'manual') {
     if (stopped) return null;
     stopped = true;
     stopReason = reason;
-    console.log(`Zoom bot stopping: ${stopReason}`);
+    console.warn(`Zoom bot stopping: ${stopReason}`);
     stopMeetingEndWatcher?.();
-    if (recorder) await recorder.stop();
+    if (recorder) await recorder.stop(stopReason);
     await browser.close().catch(() => {});
 
     if (!autoTranscribe) {
@@ -408,6 +468,8 @@ export async function runZoomBot({
   console.log(`Zoom bot joined or is waiting. Recording: ${outputFile}`);
   console.log('Zoom bot will record until the meeting ends, the Zoom page closes, or the process is stopped.');
 
-  await page.waitForEvent('close').catch(() => {});
+  await page.waitForEvent('close').catch((error) => {
+    console.warn(`Zoom page close wait failed: ${error.message}`);
+  });
   return stop('page-closed');
 }

@@ -41,7 +41,7 @@ Outputs:
 - `outputs/*-gemini-summary.md`
 
 Zoom recording stops passively when the meeting ends, the Zoom page closes, or the process is stopped with `Ctrl+C`. It does not stop on silence or elapsed duration.
-On Linux, `npm run start:audio` routes browser output to `zoom_sink` for recording and routes the browser microphone to a separate silent PulseAudio source, so the bot does not emit Chrome's default fake microphone tone into the meeting.
+On Linux, `npm run start:audio` routes browser output to `zoom_sink` for recording and gives Zoom Web Client a long silent fake microphone file. This prevents Zoom's "Cannot detect your microphone" state while ensuring the bot does not emit Chrome's default fake microphone tone into the meeting.
 
 ## Phone Conference Bot
 

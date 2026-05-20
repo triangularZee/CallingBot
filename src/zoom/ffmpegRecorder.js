@@ -44,6 +44,14 @@ export function startFfmpegRecorder(outputFile, {
     stdio: ['pipe', 'inherit', 'pipe']
   });
 
+  child.on('exit', (code, signal) => {
+    console.warn(`ffmpeg recorder exited: code=${code ?? 'null'} signal=${signal ?? 'null'} file=${outputFile}`);
+  });
+
+  child.on('error', (error) => {
+    console.error(`ffmpeg recorder process error: ${error.message}`);
+  });
+
   let silenceTriggered = false;
   child.stderr.on('data', (chunk) => {
     const text = chunk.toString();
@@ -56,12 +64,19 @@ export function startFfmpegRecorder(outputFile, {
 
   return {
     process: child,
-    stop: () =>
+    stop: (reason = 'manual') =>
       new Promise((resolve) => {
         if (child.exitCode !== null) {
+          console.warn(`ffmpeg recorder stop skipped because process already exited: reason=${reason} exitCode=${child.exitCode}`);
           resolve();
           return;
         }
+        const stack = new Error('ffmpeg recorder stop stack').stack
+          ?.split('\n')
+          .slice(1, 7)
+          .join('\n');
+        console.warn(`ffmpeg recorder stop requested: reason=${reason}`);
+        if (stack) console.warn(stack);
         child.once('exit', resolve);
         child.stdin.write('q');
         child.stdin.end();

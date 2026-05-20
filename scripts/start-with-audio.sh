@@ -18,5 +18,6 @@ export PULSE_SINK="${PULSE_SINK:-zoom_sink}"
 export PULSE_SOURCE="${PULSE_SOURCE:-zoom_mic_sink.monitor}"
 export AUDIO_INPUT_DEVICE="${AUDIO_INPUT_DEVICE:-zoom_sink.monitor}"
 export ZOOM_HEADLESS="${ZOOM_HEADLESS:-false}"
+export ZOOM_SILENT_MIC_SECONDS="${ZOOM_SILENT_MIC_SECONDS:-28800}"
 
 exec xvfb-run -a -s "-screen 0 1280x720x24" npm start
