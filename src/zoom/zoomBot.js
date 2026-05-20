@@ -68,6 +68,62 @@ async function clickZoomAudioJoin(page) {
   return false;
 }
 
+async function isButtonVisibleByName(page, namePattern, timeout = 500) {
+  try {
+    const locator = page.getByRole('button', { name: namePattern }).first();
+    await locator.waitFor({ state: 'visible', timeout });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function ensureZoomMicrophoneMuted(page) {
+  const unmutePattern = /(^|\b)unmute(\b|$)|unmute audio|음소거 해제|마이크.*켜기/i;
+  const mutePattern = /(^|\b)mute(\b|$)|mute audio|음소거|마이크.*끄기/i;
+
+  if (await isButtonVisibleByName(page, unmutePattern)) {
+    return { muted: true, action: 'already-muted' };
+  }
+
+  if (await clickButtonByName(page, mutePattern, 2500)) {
+    await page.waitForTimeout(500);
+    return {
+      muted: await isButtonVisibleByName(page, unmutePattern, 1500),
+      action: 'clicked-mute'
+    };
+  }
+
+  const muted = await page.evaluate(() => {
+    const unmutePattern = /(^|\b)unmute(\b|$)|unmute audio|음소거 해제|마이크.*켜기/i;
+    const mutePattern = /(^|\b)mute(\b|$)|mute audio|음소거|마이크.*끄기/i;
+    const buttons = Array.from(document.querySelectorAll('button'));
+
+    if (buttons.some((button) => unmutePattern.test([
+      button.textContent,
+      button.getAttribute('aria-label'),
+      button.getAttribute('title')
+    ].filter(Boolean).join(' ')))) {
+      return true;
+    }
+
+    const muteButton = buttons.find((button) => {
+      const text = [
+        button.textContent,
+        button.getAttribute('aria-label'),
+        button.getAttribute('title')
+      ].filter(Boolean).join(' ');
+      return mutePattern.test(text) && !unmutePattern.test(text);
+    });
+
+    if (!muteButton) return false;
+    muteButton.click();
+    return true;
+  }).catch(() => false);
+
+  return { muted, action: muted ? 'clicked-mute-dom' : 'not-found' };
+}
+
 function zoomNameField(page) {
   return page
     .locator('input[placeholder*="name" i], input[aria-label*="name" i], input[type="text"]')
@@ -215,6 +271,7 @@ export async function runZoomBot({
   autoTranscribe = true,
   maxMinutes = 120,
   silenceTimeout = 120,
+  onJoined = null,
   onDone = null
 }) {
   botName = normalizeBotName(botName);
@@ -307,6 +364,15 @@ export async function runZoomBot({
   await saveZoomDebug(page, title, 'after-join');
   await assertZoomJoinable(page);
   await waitForHostToStart(page);
+  const muteState = await ensureZoomMicrophoneMuted(page);
+
+  if (onJoined) {
+    try {
+      await onJoined({ title, botName, recordingPath: outputFile, muteState });
+    } catch (error) {
+      console.error('Zoom join notification failed:', error);
+    }
+  }
 
   stopMeetingEndWatcher = startMeetingEndWatcher(page, () => {
     stop('meeting-ended').catch((error) => console.error('Zoom meeting-end stop failed:', error));

@@ -56,6 +56,18 @@ app.post('/api/zoom', async (req, res, next) => {
     const job = zoomSchema.parse(req.body);
     runZoomBot({
       ...job,
+      onJoined: async ({ muteState }) => {
+        if (!job.notifyChatId) return;
+        await sendTelegramMessage(
+          job.notifyChatId,
+          [
+            `*${job.title}*`,
+            'Zoom 접속 완료.',
+            muteState?.muted ? '마이크: 음소거 완료' : '마이크: 음소거 확인 필요',
+            '녹음을 시작합니다.'
+          ].join('\n')
+        );
+      },
       onDone: async (result) => {
         if (!job.notifyChatId) return;
         await sendTelegramMessage(
