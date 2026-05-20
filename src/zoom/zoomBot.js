@@ -445,6 +445,28 @@ export async function runZoomBot({
   let recordingDebugTimer = null;
   logZoomBrowserSignals(page, browser);
 
+  function startRecorder(label = 'join-submitted') {
+    if (recorder) return;
+    recorder = startFfmpegRecorder(outputFile);
+    recordingDebugTimer = setTimeout(() => {
+      saveZoomDebug(page, title, 'recording-20s').catch((error) => {
+        console.warn(`Zoom recording debug screenshot failed: ${error.message}`);
+      });
+    }, 20_000);
+    console.log(`Zoom recording started (${label}): ${outputFile}`);
+  }
+
+  async function abortAfterError(error) {
+    if (stopped) return;
+    stopped = true;
+    stopReason = `error:${String(error.message ?? error).slice(0, 120)}`;
+    console.warn(`Zoom bot aborting: ${stopReason}`);
+    if (recordingDebugTimer) clearTimeout(recordingDebugTimer);
+    stopMeetingEndWatcher?.();
+    if (recorder) await recorder.stop(stopReason).catch(() => {});
+    await browser.close().catch(() => {});
+  }
+
   async function stop(reason = 'manual') {
     if (stopped) return null;
     stopped = true;
@@ -477,65 +499,66 @@ export async function runZoomBot({
 
   const webClientUrl = toZoomWebClientUrl(joinUrl);
   console.log(`Zoom web client URL: ${webClientUrl}`);
-  await context.grantPermissions(['microphone', 'camera'], { origin: new URL(webClientUrl).origin }).catch(() => {});
-  await page.goto(webClientUrl, { waitUntil: 'domcontentloaded' });
-
-  await saveZoomDebug(page, title, 'loaded');
-  await assertZoomJoinable(page);
-  await joinFromBrowser(page);
-  await saveZoomDebug(page, title, 'browser-join');
-  await assertZoomJoinable(page);
-
-  const stillOnJoinLauncher = await page.locator('button:has-text("Join from browser")').count().catch(() => 0);
-  if (stillOnJoinLauncher > 0) {
-    throw new Error('Zoom browser join did not open. The meeting may block web client access, or Zoom changed the join flow.');
-  }
-
-  const nameField = zoomNameField(page);
-
   try {
-    await nameField.waitFor({ state: 'visible', timeout: 10000 });
-    await nameField.fill(botName);
-  } catch {
-    // Some authenticated/browser joins do not ask for a name.
-  }
+    await context.grantPermissions(['microphone', 'camera'], { origin: new URL(webClientUrl).origin }).catch(() => {});
+    await page.goto(webClientUrl, { waitUntil: 'domcontentloaded' });
 
-  await clickButtonByName(page, /^join$/i, 5000);
-  await page.waitForTimeout(1500);
-  await clickZoomAudioJoin(page);
-  await clickButtonByName(page, /continue/i, 1000);
-  await clickButtonByName(page, /got it/i, 1000);
-  await settleZoomPostJoinDialogs(page);
-  await saveZoomDebug(page, title, 'after-join');
-  await assertZoomJoinable(page);
-  await waitForHostToStart(page);
-  await settleZoomPostJoinDialogs(page);
-  const muteState = await ensureZoomMicrophoneMuted(page);
+    await saveZoomDebug(page, title, 'loaded');
+    await assertZoomJoinable(page);
+    await joinFromBrowser(page);
+    await saveZoomDebug(page, title, 'browser-join');
+    await assertZoomJoinable(page);
 
-  if (onJoined) {
-    try {
-      await onJoined({ title, botName, recordingPath: outputFile, muteState });
-    } catch (error) {
-      console.error('Zoom join notification failed:', error);
+    const stillOnJoinLauncher = await page.locator('button:has-text("Join from browser")').count().catch(() => 0);
+    if (stillOnJoinLauncher > 0) {
+      throw new Error('Zoom browser join did not open. The meeting may block web client access, or Zoom changed the join flow.');
     }
-  }
 
-  stopMeetingEndWatcher = startMeetingEndWatcher(page, () => {
-    stop('meeting-ended').catch((error) => console.error('Zoom meeting-end stop failed:', error));
-  });
+    const nameField = zoomNameField(page);
 
-  recorder = startFfmpegRecorder(outputFile);
-  recordingDebugTimer = setTimeout(() => {
-    saveZoomDebug(page, title, 'recording-20s').catch((error) => {
-      console.warn(`Zoom recording debug screenshot failed: ${error.message}`);
+    try {
+      await nameField.waitFor({ state: 'visible', timeout: 10000 });
+      await nameField.fill(botName);
+    } catch {
+      // Some authenticated/browser joins do not ask for a name.
+    }
+
+    startRecorder('before-join-submit');
+    await clickButtonByName(page, /^join$/i, 5000);
+    await page.waitForTimeout(1500);
+    await clickZoomAudioJoin(page);
+    await clickButtonByName(page, /continue/i, 1000);
+    await clickButtonByName(page, /got it/i, 1000);
+    await settleZoomPostJoinDialogs(page);
+    await saveZoomDebug(page, title, 'after-join');
+    await assertZoomJoinable(page);
+    await waitForHostToStart(page);
+    await settleZoomPostJoinDialogs(page);
+    const muteState = await ensureZoomMicrophoneMuted(page);
+
+    if (onJoined) {
+      try {
+        await onJoined({ title, botName, recordingPath: outputFile, muteState });
+      } catch (error) {
+        console.error('Zoom join notification failed:', error);
+      }
+    }
+
+    stopMeetingEndWatcher = startMeetingEndWatcher(page, () => {
+      stop('meeting-ended').catch((error) => console.error('Zoom meeting-end stop failed:', error));
     });
-  }, 20_000);
 
-  console.log(`Zoom bot joined or is waiting. Recording: ${outputFile}`);
-  console.log('Zoom bot will record until the meeting ends, the Zoom page closes, or the process is stopped.');
+    startRecorder('joined');
 
-  await page.waitForEvent('close').catch((error) => {
-    console.warn(`Zoom page close wait failed: ${error.message}`);
-  });
-  return stop('page-closed');
+    console.log(`Zoom bot joined or is waiting. Recording: ${outputFile}`);
+    console.log('Zoom bot will record until the meeting ends, the Zoom page closes, or the process is stopped.');
+
+    await page.waitForEvent('close').catch((error) => {
+      console.warn(`Zoom page close wait failed: ${error.message}`);
+    });
+    return stop('page-closed');
+  } catch (error) {
+    await abortAfterError(error);
+    throw error;
+  }
 }
