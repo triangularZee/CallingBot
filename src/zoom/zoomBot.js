@@ -5,6 +5,7 @@ import { processRecording } from '../pipeline/openaiPipeline.js';
 import { startFfmpegRecorder } from './ffmpegRecorder.js';
 import path from 'node:path';
 import fsp from 'node:fs/promises';
+import os from 'node:os';
 
 async function clickIfVisible(page, selector, timeout = 2500) {
   try {
@@ -163,7 +164,10 @@ function logZoomBrowserSignals(page, browser) {
   });
 
   page.on('pageerror', (error) => {
-    console.error(`Zoom page error: ${error.message}`);
+    const message = error?.message
+      ?? (typeof error === 'string' ? error : JSON.stringify(error, Object.getOwnPropertyNames(error ?? {})));
+    console.error(`Zoom page error: ${message}`);
+    if (error?.stack) console.error(error.stack);
   });
 
   page.on('console', (message) => {
@@ -237,7 +241,7 @@ async function assertZoomJoinable(page) {
     { pattern: /this meeting has been ended/i, message: 'Zoom join failed: meeting has ended.' },
     { pattern: /unable to join/i, message: 'Zoom join failed: unable to join.' },
     { pattern: /error code:\s*\d+/i, message: 'Zoom join failed: Zoom returned an error.' },
-    { pattern: /\\(3,001\\)/i, message: 'Zoom join failed: Zoom returned error 3001.' },
+    { pattern: /\(3,001\)/i, message: 'Zoom join failed: Zoom returned error 3001.' },
     { pattern: /유효하지.*미팅/i, message: 'Zoom join failed: invalid meeting.' },
     { pattern: /잘못된.*링크/i, message: 'Zoom join failed: invalid meeting link.' },
     { pattern: /종료된.*미팅/i, message: 'Zoom join failed: meeting has ended.' }
@@ -280,6 +284,9 @@ async function waitForHostToStart(page, { timeoutMs = 60 * 60 * 1000 } = {}) {
 
 function startMeetingEndWatcher(page, onEnded) {
   const endedPatterns = [
+    { label: 'bot-detected', pattern: /automated bots aren't allowed/i },
+    { label: 'bot-detected', pattern: /we detected you may be a bot/i },
+    { label: 'bot-detected', pattern: /must use Zoom RTMS/i },
     { label: 'meeting-ended', pattern: /\bmeeting has been ended\b/i },
     { label: 'host-ended', pattern: /\bhost ended this meeting\b/i },
     { label: 'this-meeting-ended', pattern: /\bthis meeting has ended\b/i },
@@ -294,12 +301,34 @@ function startMeetingEndWatcher(page, onEnded) {
   ];
   const timer = setInterval(async () => {
     try {
-      const text = await page.locator('body').innerText({ timeout: 1000 });
+      const text = await page.evaluate(() => {
+        const selectors = [
+          '[role="dialog"]',
+          '[role="alertdialog"]',
+          '[role="alert"]',
+          '.zm-modal',
+          '.ReactModal__Content',
+          '.modal',
+          '.notification-message'
+        ];
+        const elements = Array.from(document.querySelectorAll(selectors.join(',')));
+        return elements
+          .filter((element) => {
+            const style = window.getComputedStyle(element);
+            const rect = element.getBoundingClientRect();
+            return style.visibility !== 'hidden'
+              && style.display !== 'none'
+              && rect.width > 0
+              && rect.height > 0;
+          })
+          .map((element) => element.innerText || element.textContent || '')
+          .join('\n');
+      });
       const matched = endedPatterns.find(({ pattern }) => pattern.test(text));
       if (matched) {
         const compact = text.replace(/\s+/g, ' ').trim().slice(0, 240);
         console.log(`Zoom meeting-end watcher matched: ${matched.label}. Text: ${compact}`);
-        onEnded();
+        onEnded(matched.label);
       }
     } catch (error) {
       console.warn(`Zoom meeting-end watcher read failed: ${error.message}`);
@@ -337,30 +366,10 @@ async function dismissZoomPostJoinDialogs(page) {
   return clicked;
 }
 
-async function clickLikelyZoomConsentButton(page) {
-  const viewport = page.viewportSize() ?? { width: 1280, height: 720 };
-  const points = [
-    { x: 0.68, y: 0.58 },
-    { x: 0.70, y: 0.58 },
-    { x: 0.66, y: 0.58 },
-    { x: 0.50, y: 0.58 }
-  ];
-
-  for (const point of points) {
-    await page.mouse.click(Math.round(viewport.width * point.x), Math.round(viewport.height * point.y)).catch(() => {});
-    await page.waitForTimeout(350);
-  }
-
-  await page.keyboard.press('Enter').catch(() => {});
-  await page.waitForTimeout(500);
-}
-
 async function settleZoomPostJoinDialogs(page) {
   for (let attempt = 1; attempt <= 4; attempt += 1) {
     const clicked = await dismissZoomPostJoinDialogs(page);
-    if (!clicked) {
-      await clickLikelyZoomConsentButton(page);
-    }
+    if (!clicked) break;
     await page.waitForTimeout(700);
   }
 }
@@ -417,15 +426,18 @@ export async function runZoomBot({
   let stopMeetingEndWatcher = null;
   let stopReason = 'manual';
   const silentMicFile = config.zoomUseFakeMicFile ? await ensureSilentMicFile() : null;
+  const platform = os.platform();
   const mediaArgs = config.zoomUseFakeMicFile
     ? [
       '--use-fake-device-for-media-stream',
       `--use-file-for-fake-audio-capture=${silentMicFile}`
     ]
-    : [
-      '--alsa-input-device=pulse',
-      '--alsa-output-device=pulse'
-    ];
+    : platform === 'linux'
+      ? [
+        '--alsa-input-device=pulse',
+        '--alsa-output-device=pulse'
+      ]
+      : [];
 
   const browser = await chromium.launch({
     headless: config.zoomHeadless,
@@ -505,9 +517,10 @@ export async function runZoomBot({
   console.log(`Zoom web client URL: ${webClientUrl}`);
   try {
     await context.grantPermissions(['microphone', 'camera'], { origin: new URL(webClientUrl).origin }).catch(() => {});
-    await page.goto(webClientUrl, { waitUntil: 'domcontentloaded' });
+    await page.goto(webClientUrl, { waitUntil: 'domcontentloaded', timeout: 120_000 });
 
     await saveZoomDebug(page, title, 'loaded');
+    await page.waitForTimeout(3000);
     await assertZoomJoinable(page);
     await joinFromBrowser(page);
     await saveZoomDebug(page, title, 'browser-join');
@@ -527,10 +540,11 @@ export async function runZoomBot({
       // Some authenticated/browser joins do not ask for a name.
     }
 
-    startRecorder('before-join-submit');
     await clickButtonByName(page, /^join$/i, 5000);
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(2000);
+    await assertZoomJoinable(page);
     await clickZoomAudioJoin(page);
+    await assertZoomJoinable(page);
     await clickButtonByName(page, /continue/i, 1000);
     await clickButtonByName(page, /got it/i, 1000);
     await settleZoomPostJoinDialogs(page);
@@ -540,6 +554,13 @@ export async function runZoomBot({
     await settleZoomPostJoinDialogs(page);
     const muteState = await ensureZoomMicrophoneMuted(page);
 
+    stopMeetingEndWatcher = startMeetingEndWatcher(page, (reason) => {
+      const stopReasonFromWatcher = reason === 'bot-detected' ? 'bot-detected' : 'meeting-ended';
+      stop(stopReasonFromWatcher).catch((error) => console.error('Zoom meeting-end stop failed:', error));
+    });
+
+    startRecorder('joined');
+
     if (onJoined) {
       try {
         await onJoined({ title, botName, recordingPath: outputFile, muteState });
@@ -547,12 +568,6 @@ export async function runZoomBot({
         console.error('Zoom join notification failed:', error);
       }
     }
-
-    stopMeetingEndWatcher = startMeetingEndWatcher(page, () => {
-      stop('meeting-ended').catch((error) => console.error('Zoom meeting-end stop failed:', error));
-    });
-
-    startRecorder('joined');
 
     console.log(`Zoom bot joined or is waiting. Recording: ${outputFile}`);
     console.log('Zoom bot will record until the meeting ends, the Zoom page closes, or the process is stopped.');

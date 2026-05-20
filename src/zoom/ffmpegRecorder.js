@@ -77,8 +77,21 @@ export function startFfmpegRecorder(outputFile, {
           .join('\n');
         console.warn(`ffmpeg recorder stop requested: reason=${reason}`);
         if (stack) console.warn(stack);
-        child.once('exit', resolve);
-        child.stdin.write('q');
+        const forceKillTimer = setTimeout(() => {
+          console.warn(`ffmpeg recorder did not exit after graceful stop; sending SIGINT: reason=${reason}`);
+          child.kill('SIGINT');
+        }, 5000);
+        const hardKillTimer = setTimeout(() => {
+          console.warn(`ffmpeg recorder did not exit after SIGINT; sending SIGKILL: reason=${reason}`);
+          child.kill('SIGKILL');
+        }, 10_000);
+
+        child.once('exit', () => {
+          clearTimeout(forceKillTimer);
+          clearTimeout(hardKillTimer);
+          resolve();
+        });
+        child.stdin.write('q\n');
         child.stdin.end();
       })
   };
