@@ -276,10 +276,11 @@ function startMeetingEndWatcher(page, onEnded) {
 
 async function dismissZoomPostJoinDialogs(page) {
   const candidates = [
-    () => clickButtonByName(page, /^ok$/i, 1200),
-    () => clickButtonByText(page, 'OK', 1000),
-    () => clickButtonByName(page, /got it/i, 1000),
-    () => clickButtonByName(page, /continue/i, 1000)
+    () => clickButtonByName(page, /^ok$/i, 500),
+    () => clickButtonByText(page, 'OK', 400),
+    () => clickButtonByName(page, /^(accept|agree)$/i, 400),
+    () => clickButtonByName(page, /got it/i, 400),
+    () => clickButtonByName(page, /continue/i, 400)
   ];
 
   for (const candidate of candidates) {
@@ -299,6 +300,34 @@ async function dismissZoomPostJoinDialogs(page) {
 
   if (clicked) await page.waitForTimeout(500);
   return clicked;
+}
+
+async function clickLikelyZoomConsentButton(page) {
+  const viewport = page.viewportSize() ?? { width: 1280, height: 720 };
+  const points = [
+    { x: 0.68, y: 0.58 },
+    { x: 0.70, y: 0.58 },
+    { x: 0.66, y: 0.58 },
+    { x: 0.50, y: 0.58 }
+  ];
+
+  for (const point of points) {
+    await page.mouse.click(Math.round(viewport.width * point.x), Math.round(viewport.height * point.y)).catch(() => {});
+    await page.waitForTimeout(350);
+  }
+
+  await page.keyboard.press('Enter').catch(() => {});
+  await page.waitForTimeout(500);
+}
+
+async function settleZoomPostJoinDialogs(page) {
+  for (let attempt = 1; attempt <= 4; attempt += 1) {
+    const clicked = await dismissZoomPostJoinDialogs(page);
+    if (!clicked) {
+      await clickLikelyZoomConsentButton(page);
+    }
+    await page.waitForTimeout(700);
+  }
 }
 
 async function joinFromBrowser(page) {
@@ -444,11 +473,11 @@ export async function runZoomBot({
   await clickZoomAudioJoin(page);
   await clickButtonByName(page, /continue/i, 1000);
   await clickButtonByName(page, /got it/i, 1000);
-  await dismissZoomPostJoinDialogs(page);
+  await settleZoomPostJoinDialogs(page);
   await saveZoomDebug(page, title, 'after-join');
   await assertZoomJoinable(page);
   await waitForHostToStart(page);
-  await dismissZoomPostJoinDialogs(page);
+  await settleZoomPostJoinDialogs(page);
   const muteState = await ensureZoomMicrophoneMuted(page);
 
   if (onJoined) {
