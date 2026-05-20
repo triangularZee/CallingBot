@@ -235,6 +235,8 @@ async function assertZoomJoinable(page) {
     { pattern: /we detected you may be a bot/i, message: 'Zoom Web Client blocked automated joining. This meeting requires Zoom RTMS or a signed-in Zoom client.' },
     { pattern: /must use Zoom RTMS/i, message: 'Zoom Web Client blocked automated joining. This meeting requires Zoom RTMS or a signed-in Zoom client.' },
     { pattern: /sign in to join[\s\S]{0,500}automated bots/i, message: 'Zoom Web Client blocked automated joining. This meeting requires Zoom RTMS or a signed-in Zoom client.' },
+    { pattern: /incorrect password/i, message: 'Zoom join failed: incorrect meeting passcode.' },
+    { pattern: /invalid passcode/i, message: 'Zoom join failed: invalid meeting passcode.' },
     { pattern: /meeting link is invalid/i, message: 'Zoom join failed: invalid meeting link.' },
     { pattern: /invalid meeting/i, message: 'Zoom join failed: invalid meeting.' },
     { pattern: /meeting id is invalid/i, message: 'Zoom join failed: invalid meeting ID.' },
@@ -252,6 +254,20 @@ async function assertZoomJoinable(page) {
   if (matched) {
     const compact = text.replace(/\s+/g, ' ').trim().slice(0, 240);
     throw new Error(`${matched.message}${compact ? ` Details: ${compact}` : ''}`);
+  }
+}
+
+async function assertZoomJoined(page) {
+  await assertZoomJoinable(page);
+  const text = await page.locator('body').innerText({ timeout: 3000 }).catch(() => '');
+  const stillOnMeetingInfo = /enter meeting info/i.test(text)
+    && /\bjoin\b/i.test(text)
+    && !/\bleave\b/i.test(text)
+    && !/\bparticipants\b/i.test(text);
+
+  if (stillOnMeetingInfo) {
+    const compact = text.replace(/\s+/g, ' ').trim().slice(0, 240);
+    throw new Error(`Zoom join failed: still on meeting info form. Check the meeting URL and passcode.${compact ? ` Details: ${compact}` : ''}`);
   }
 }
 
@@ -396,8 +412,14 @@ async function joinFromBrowser(page) {
   await isNamePromptVisible(page, 3000);
 }
 
+function sanitizeJoinUrl(joinUrl) {
+  const text = String(joinUrl ?? '').trim();
+  const match = text.match(/https?:\/\/[^\s<>"'`,}\]]+/i);
+  return (match ? match[0] : text).replace(/[)>.,]+$/g, '');
+}
+
 function toZoomWebClientUrl(joinUrl) {
-  const url = new URL(joinUrl);
+  const url = new URL(sanitizeJoinUrl(joinUrl));
   const match = url.pathname.match(/^\/j\/(\d+)/);
   if (match) {
     url.pathname = `/wc/join/${match[1]}`;
@@ -554,7 +576,7 @@ export async function runZoomBot({
     await clickButtonByName(page, /got it/i, 1000);
     await settleZoomPostJoinDialogs(page);
     await saveZoomDebug(page, title, 'after-join');
-    await assertZoomJoinable(page);
+    await assertZoomJoined(page);
     await waitForHostToStart(page);
     await settleZoomPostJoinDialogs(page);
     const muteState = await ensureZoomMicrophoneMuted(page);
