@@ -227,27 +227,27 @@ async function ensureSilentMicFile() {
 
 async function assertZoomJoinable(page) {
   const errorPatterns = [
-    /meeting link is invalid/i,
-    /invalid meeting/i,
-    /meeting id is invalid/i,
-    /this meeting has been ended/i,
-    /unable to join/i,
-    /automated bots aren't allowed/i,
-    /we detected you may be a bot/i,
-    /must use Zoom RTMS/i,
-    /sign in to join[\s\S]{0,500}automated bots/i,
-    /error code:\s*\d+/i,
-    /\\(3,001\\)/i,
-    /유효하지.*미팅/i,
-    /잘못된.*링크/i,
-    /종료된.*미팅/i
+    { pattern: /automated bots aren't allowed/i, message: 'Zoom Web Client blocked automated joining. This meeting requires Zoom RTMS or a signed-in Zoom client.' },
+    { pattern: /we detected you may be a bot/i, message: 'Zoom Web Client blocked automated joining. This meeting requires Zoom RTMS or a signed-in Zoom client.' },
+    { pattern: /must use Zoom RTMS/i, message: 'Zoom Web Client blocked automated joining. This meeting requires Zoom RTMS or a signed-in Zoom client.' },
+    { pattern: /sign in to join[\s\S]{0,500}automated bots/i, message: 'Zoom Web Client blocked automated joining. This meeting requires Zoom RTMS or a signed-in Zoom client.' },
+    { pattern: /meeting link is invalid/i, message: 'Zoom join failed: invalid meeting link.' },
+    { pattern: /invalid meeting/i, message: 'Zoom join failed: invalid meeting.' },
+    { pattern: /meeting id is invalid/i, message: 'Zoom join failed: invalid meeting ID.' },
+    { pattern: /this meeting has been ended/i, message: 'Zoom join failed: meeting has ended.' },
+    { pattern: /unable to join/i, message: 'Zoom join failed: unable to join.' },
+    { pattern: /error code:\s*\d+/i, message: 'Zoom join failed: Zoom returned an error.' },
+    { pattern: /\\(3,001\\)/i, message: 'Zoom join failed: Zoom returned error 3001.' },
+    { pattern: /유효하지.*미팅/i, message: 'Zoom join failed: invalid meeting.' },
+    { pattern: /잘못된.*링크/i, message: 'Zoom join failed: invalid meeting link.' },
+    { pattern: /종료된.*미팅/i, message: 'Zoom join failed: meeting has ended.' }
   ];
 
   const text = await page.locator('body').innerText({ timeout: 3000 }).catch(() => '');
-  const matched = errorPatterns.find((pattern) => pattern.test(text));
+  const matched = errorPatterns.find(({ pattern }) => pattern.test(text));
   if (matched) {
     const compact = text.replace(/\s+/g, ' ').trim().slice(0, 240);
-    throw new Error(`Zoom join failed before recording: ${compact || matched.source}`);
+    throw new Error(`${matched.message}${compact ? ` Details: ${compact}` : ''}`);
   }
 }
 
