@@ -12,27 +12,11 @@ import { dialConference, hangupCalls } from './call/twilioCallBot.js';
 import { attachSilenceMonitor } from './call/silenceMonitor.js';
 import { sendTelegramDocument, sendTelegramMessage } from './telegram/notify.js';
 import { createTelegramBot } from './telegram/createBot.js';
-import {
-  exchangeZoomAuthorizationCode,
-  refreshZoomToken,
-  zoomAuthorizationUrl,
-  zoomOAuthStatus
-} from './zoom/zoomOAuth.js';
-import {
-  handleZoomRtmsWebhook,
-  verifyZoomWebhook,
-  zoomRtmsStatus,
-  zoomUrlValidationResponse
-} from './zoom/zoomRtms.js';
 
 await ensureDirs();
 
 const app = express();
-app.use(express.json({
-  verify: (req, _res, buf) => {
-    req.rawBody = buf.toString('utf8');
-  }
-}));
+app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
 if (config.telegram.botToken) {
@@ -63,76 +47,6 @@ const hangupSchema = z.object({
 
 app.get('/health', (_req, res) => {
   res.json({ ok: true });
-});
-
-app.get('/zoom/oauth/start', (req, res, next) => {
-  try {
-    const state = String(req.query.state ?? '');
-    res.redirect(zoomAuthorizationUrl({ state }));
-  } catch (error) {
-    next(error);
-  }
-});
-
-app.get('/zoom/oauth/callback', async (req, res, next) => {
-  try {
-    const token = await exchangeZoomAuthorizationCode(String(req.query.code ?? ''));
-    res.json({
-      ok: true,
-      connected: true,
-      expiresAt: token.expiresAt,
-      scope: token.scope ?? ''
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
-app.get('/zoom/oauth/status', async (_req, res, next) => {
-  try {
-    res.json(await zoomOAuthStatus());
-  } catch (error) {
-    next(error);
-  }
-});
-
-app.post('/zoom/oauth/refresh', async (_req, res, next) => {
-  try {
-    const token = await refreshZoomToken();
-    res.json({
-      ok: true,
-      expiresAt: token.expiresAt,
-      scope: token.scope ?? ''
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
-app.get('/zoom/rtms/status', (_req, res) => {
-  res.json(zoomRtmsStatus());
-});
-
-app.post('/zoom/rtms/webhook', (req, res, next) => {
-  try {
-    if (req.body?.event === 'endpoint.url_validation') {
-      res.json(zoomUrlValidationResponse(req.body));
-      return;
-    }
-
-    if (!verifyZoomWebhook(req)) {
-      res.status(401).json({ error: 'Invalid Zoom webhook signature' });
-      return;
-    }
-
-    Promise.resolve(handleZoomRtmsWebhook(req.body)).catch((error) => {
-      console.error('Zoom RTMS webhook processing failed:', error);
-    });
-
-    res.json({ ok: true });
-  } catch (error) {
-    next(error);
-  }
 });
 
 app.post('/api/zoom', async (req, res, next) => {
