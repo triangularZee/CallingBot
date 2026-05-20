@@ -149,8 +149,8 @@ function startMeetingEndWatcher(page, onEnded) {
     /this meeting has ended/i,
     /you have been removed/i,
     /removed from the meeting/i,
-    /disconnected/i,
-    /reconnect/i,
+    /you are disconnected from the meeting/i,
+    /meeting disconnected/i,
     /회의가 종료/i,
     /미팅이 종료/i,
     /연결이 끊/i
@@ -246,6 +246,7 @@ export async function runZoomBot({
     if (stopped) return null;
     stopped = true;
     stopReason = reason;
+    console.log(`Zoom bot stopping: ${stopReason}`);
     if (maxTimer) clearTimeout(maxTimer);
     stopMeetingEndWatcher?.();
     if (recorder) await recorder.stop();
