@@ -5,6 +5,7 @@ import { config } from '../config.js';
 export function startFfmpegRecorder(outputFile, {
   silenceTimeout = 0,
   silenceNoiseDb = config.zoomSilenceNoiseDb,
+  recordGainDb = config.zoomRecordGainDb,
   onSilence = null
 } = {}) {
   if (!config.audioInputDevice) {
@@ -23,8 +24,18 @@ export function startFfmpegRecorder(outputFile, {
   }
 
   const silenceSeconds = Math.trunc(Number(silenceTimeout));
+  const filters = [];
   if (silenceSeconds > 0) {
-    args.push('-af', `silencedetect=noise=${Number(silenceNoiseDb)}dB:d=${silenceSeconds}`);
+    filters.push(`silencedetect=noise=${Number(silenceNoiseDb)}dB:d=${silenceSeconds}`);
+  }
+
+  const gainDb = Number(recordGainDb);
+  if (Number.isFinite(gainDb) && gainDb !== 0) {
+    filters.push(`volume=${gainDb}dB`, 'alimiter=limit=0.95');
+  }
+
+  if (filters.length > 0) {
+    args.push('-af', filters.join(','));
   }
 
   args.push('-ac', '1', '-ar', '16000', outputFile);
