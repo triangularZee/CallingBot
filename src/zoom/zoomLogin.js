@@ -76,7 +76,14 @@ export async function runZoomLogin({
 // CLI entrypoint
 if (import.meta.url === `file://${process.argv[1]}`
   || process.argv[1]?.endsWith('zoomLogin.js')) {
-  runZoomLogin().catch((error) => {
+  const waitSeconds = Number(process.env.ZOOM_LOGIN_WAIT_SECONDS ?? 0);
+  const waitForUserMs = Number.isFinite(waitSeconds) && waitSeconds > 0
+    ? waitSeconds * 1000
+    : 0;
+  if (waitForUserMs > 0) {
+    console.log(`ZOOM_LOGIN_WAIT_SECONDS=${waitSeconds} — saving storageState automatically after this wait.`);
+  }
+  runZoomLogin({ waitForUserMs }).catch((error) => {
     console.error('Zoom login failed:', error);
     process.exit(1);
   });
