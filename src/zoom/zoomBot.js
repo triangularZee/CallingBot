@@ -149,6 +149,37 @@ async function saveZoomDebug(page, title, label) {
   console.log(`Zoom debug saved: ${screenshotPath}`);
 }
 
+function logZoomBrowserSignals(page, browser) {
+  browser.on('disconnected', () => {
+    console.warn('Zoom browser event: disconnected');
+  });
+
+  page.on('close', () => {
+    console.warn('Zoom page event: close');
+  });
+
+  page.on('crash', () => {
+    console.error('Zoom page event: crash');
+  });
+
+  page.on('pageerror', (error) => {
+    console.error(`Zoom page error: ${error.message}`);
+  });
+
+  page.on('console', (message) => {
+    if (!['error', 'warning'].includes(message.type())) return;
+    const text = message.text().replace(/\s+/g, ' ').slice(0, 500);
+    console.warn(`Zoom console ${message.type()}: ${text}`);
+  });
+
+  page.on('requestfailed', (request) => {
+    const failure = request.failure()?.errorText ?? 'unknown';
+    const url = request.url();
+    if (!/zoom|sock|websocket|wc|meeting/i.test(url)) return;
+    console.warn(`Zoom request failed: ${failure} ${url.slice(0, 240)}`);
+  });
+}
+
 async function ensureSilentMicFile() {
   const sampleRate = 16000;
   const bytesPerSample = 2;
@@ -392,7 +423,9 @@ export async function runZoomBot({
       '--autoplay-policy=no-user-gesture-required',
       '--no-sandbox',
       '--disable-dev-shm-usage',
-      '--disable-gpu'
+      '--ignore-gpu-blocklist',
+      '--enable-webgl',
+      '--use-gl=swiftshader'
     ]
   });
 
@@ -401,24 +434,15 @@ export async function runZoomBot({
   });
   const page = await context.newPage();
   let stopped = false;
-
-  browser.on('disconnected', () => {
-    console.warn('Zoom browser event: disconnected');
-  });
-
-  page.on('close', () => {
-    console.warn('Zoom page event: close');
-  });
-
-  page.on('crash', () => {
-    console.error('Zoom page event: crash');
-  });
+  let recordingDebugTimer = null;
+  logZoomBrowserSignals(page, browser);
 
   async function stop(reason = 'manual') {
     if (stopped) return null;
     stopped = true;
     stopReason = reason;
     console.warn(`Zoom bot stopping: ${stopReason}`);
+    if (recordingDebugTimer) clearTimeout(recordingDebugTimer);
     stopMeetingEndWatcher?.();
     if (recorder) await recorder.stop(stopReason);
     await browser.close().catch(() => {});
@@ -493,6 +517,11 @@ export async function runZoomBot({
   });
 
   recorder = startFfmpegRecorder(outputFile);
+  recordingDebugTimer = setTimeout(() => {
+    saveZoomDebug(page, title, 'recording-20s').catch((error) => {
+      console.warn(`Zoom recording debug screenshot failed: ${error.message}`);
+    });
+  }, 20_000);
 
   console.log(`Zoom bot joined or is waiting. Recording: ${outputFile}`);
   console.log('Zoom bot will record until the meeting ends, the Zoom page closes, or the process is stopped.');
