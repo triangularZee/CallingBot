@@ -149,7 +149,7 @@ npm start
 npm run telegram:set-webhook
 ```
 
-Manual recording retries also send the summary/transcript to `TELEGRAM_CHAT_ID` by default:
+Manual recording retries send the summary to `TELEGRAM_CHAT_ID` by default. Long summaries are split across multiple Telegram messages instead of being returned as files:
 
 ```powershell
 npm run transcribe -- --file .\recordings\meeting.wav --title meeting-title
@@ -229,4 +229,3 @@ Content-Type: application/json
   "callSid": "CA..."
 }
 ```
-
