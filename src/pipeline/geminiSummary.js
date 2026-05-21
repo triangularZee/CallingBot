@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import { GoogleGenAI } from '@google/genai';
 import { config } from '../config.js';
 import { outputPath } from '../utils/files.js';
+import { normalizeSummaryFormatting } from '../utils/summaryFormat.js';
 
 function geminiClient() {
   if (!config.geminiApiKey) {
@@ -146,7 +147,7 @@ export async function summarizeWithGemini(transcriptText, { title = 'meeting', n
     contents: exampleStyleSummaryPrompt({ title, note, transcriptText })
   });
 
-  const summary = response.text ?? '';
+  const summary = normalizeSummaryFormatting(response.text ?? '');
   const summaryPath = outputPath(title, 'gemini-summary.md');
   await fs.writeFile(summaryPath, summary, 'utf8');
 
