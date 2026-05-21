@@ -3,7 +3,10 @@ import path from 'node:path';
 import { config } from '../config.js';
 import { outputPath } from '../utils/files.js';
 
-function run(command, args) {
+export const transcriptionAudioFilter =
+  'highpass=f=180,lowpass=f=3600,afftdn=nf=-25,loudnorm=I=-16:TP=-1.5:LRA=11,volume=8dB';
+
+export function runAudioCommand(command, args) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     let stderr = '';
@@ -21,7 +24,7 @@ function run(command, args) {
 export async function preprocessAudioForTranscription(filePath, { title = 'meeting' } = {}) {
   const ffmpegPath = config.ffmpegPath || 'ffmpeg';
   const enhancedPath = outputPath(title, 'enhanced.wav');
-  await run(ffmpegPath, [
+  await runAudioCommand(ffmpegPath, [
     '-y',
     '-hide_banner',
     '-loglevel',
@@ -29,7 +32,7 @@ export async function preprocessAudioForTranscription(filePath, { title = 'meeti
     '-i',
     filePath,
     '-af',
-    'highpass=f=180,lowpass=f=3600,afftdn=nf=-25,loudnorm=I=-16:TP=-1.5:LRA=11,volume=8dB',
+    transcriptionAudioFilter,
     '-ar',
     '16000',
     '-ac',
