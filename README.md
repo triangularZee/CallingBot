@@ -183,6 +183,7 @@ The summary format is optimized for earnings-call notes:
 - numbered Korean takeaways without repeated `(n) 핵심 요약` labels
 - guidance/outlook as `■` sub-bullets when relevant
 - full `[Q&A]` section with every `Qn)` and `An)` kept in order
+- bullet-note style throughout, including Q&A answers, avoiding prose endings like `~다`
 - concise `[Implication]` section in analyst-note style
 
 ## API
