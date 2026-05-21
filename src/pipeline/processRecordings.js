@@ -4,6 +4,7 @@ import { parseArgs } from '../utils/args.js';
 import { ensureDirs, safeSlug } from '../utils/files.js';
 import { config } from '../config.js';
 import { processRecording } from './openaiPipeline.js';
+import { resolveTelegramChatId, sendRecordingResult } from '../telegram/notify.js';
 
 function titleFromFile(filePath) {
   const base = path.basename(filePath, path.extname(filePath));
@@ -26,6 +27,8 @@ const summaryProvider = args['summary-provider'] ? String(args['summary-provider
 const preprocessAudio = args['no-preprocess'] ? false : true;
 const ensembleTranscription = args['single-stt'] ? false : true;
 const limit = args.limit && args.limit !== true ? Number(args.limit) : Infinity;
+const notifyChatId = args['notify-chat-id'] && args['notify-chat-id'] !== true ? String(args['notify-chat-id']) : '';
+const shouldNotify = !args['no-telegram'] && Boolean(resolveTelegramChatId(notifyChatId));
 
 await ensureDirs();
 
@@ -38,6 +41,9 @@ for (const file of files) {
   try {
     const result = await processRecording(file, { title, note, language, summaryProvider, preprocessAudio, ensembleTranscription });
     results.push({ file, title, ok: true, ...result });
+    if (shouldNotify) {
+      await sendRecordingResult(notifyChatId, result, { title });
+    }
     console.error(`Done ${file}`);
   } catch (error) {
     results.push({ file, title, ok: false, error: error.message });
