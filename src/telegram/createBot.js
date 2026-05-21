@@ -1,6 +1,18 @@
 import { Bot } from 'grammy';
 import { config } from '../config.js';
 import { dialConference } from '../call/twilioCallBot.js';
+import {
+  callSetupBanner,
+  cancelCallWizard,
+  cancelScheduledJob,
+  handleCallMenuText,
+  handleCallWizardInput,
+  initCallScheduler,
+  isCallMenuText,
+  showJobHistory,
+  showScheduledJobs,
+  startCallWizard
+} from './callWizard.js';
 import { parseCallCommand, callCommandHelp } from './parseCommand.js';
 
 function isAllowed(ctx) {
@@ -14,8 +26,30 @@ async function handleCall(ctx) {
     return;
   }
 
+  const text = ctx.message?.text ?? '';
+  const [, subcommand = '', ...rest] = text.trim().split(/\s+/);
+  const normalizedSubcommand = subcommand.toLowerCase();
+  if (['schedule', 'schedules', '예약', '예약목록'].includes(normalizedSubcommand)) {
+    await showScheduledJobs(ctx);
+    return;
+  }
+  if (['cancel', '예약취소'].includes(normalizedSubcommand)) {
+    await cancelScheduledJob(ctx, rest[0] ?? '');
+    return;
+  }
+  if (['history', '내역'].includes(normalizedSubcommand)) {
+    await showJobHistory(ctx);
+    return;
+  }
+
+  const hasInlinePayload = text.split(/\r?\n/).slice(1).some((line) => line.trim());
+  if (!hasInlinePayload) {
+    await startCallWizard(ctx);
+    return;
+  }
+
   try {
-    const job = parseCallCommand(ctx.message?.text ?? '');
+    const job = parseCallCommand(text);
     const call = await dialConference({
       ...job,
       notifyChatId: String(ctx.chat.id)
@@ -40,24 +74,35 @@ export function createTelegramBot() {
   }
 
   const bot = new Bot(config.telegram.botToken);
+  initCallScheduler();
 
   bot.command('start', async (ctx) => {
     if (!isAllowed(ctx)) return;
-    await ctx.reply(callCommandHelp());
+    await ctx.reply(`${callSetupBanner()}\n\n${callCommandHelp()}`);
   });
 
   bot.command('help', async (ctx) => {
     if (!isAllowed(ctx)) return;
-    await ctx.reply(callCommandHelp());
+    await ctx.reply(`${callSetupBanner()}\n\n${callCommandHelp()}`);
   });
 
   bot.command('call', handleCall);
+  bot.command('skip', handleCallWizardInput);
+  bot.command('cancel', cancelCallWizard);
 
   bot.on('message:text', async (ctx, next) => {
     const text = ctx.message.text.trim();
     if (text.startsWith('/call') || text.startsWith('/call@')) {
       await handleCall(ctx);
       return;
+    }
+    if (await handleCallWizardInput(ctx)) {
+      return;
+    }
+    if (isAllowed(ctx) && isCallMenuText(text)) {
+      if (await handleCallMenuText(ctx)) {
+        return;
+      }
     }
     await next();
   });
