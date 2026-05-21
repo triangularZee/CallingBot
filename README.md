@@ -178,9 +178,11 @@ title=251212_FY4Q25 Broadcom
 
 The summary format is optimized for earnings-call notes:
 
-- numbered Korean takeaways
-- full `[Q&A]` section with every `Qn)` and `An)` separated by a blank line
-- `[Implication]` section with analyst-style bullets
+- first-line format like `YYMMDD_Company [key tags]`
+- numbered Korean takeaways without repeated `(n) 핵심 요약` labels
+- guidance/outlook as `■` sub-bullets when relevant
+- full `[Q&A]` section with every `Qn)` and `An)` kept in order
+- concise `[Implication]` section in analyst-note style
 
 ## API
 
