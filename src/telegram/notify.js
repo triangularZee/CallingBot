@@ -1,6 +1,7 @@
 import { config } from '../config.js';
 import { openAsBlob } from 'node:fs';
 import path from 'node:path';
+import { normalizeSummaryFormatting } from '../utils/summaryFormat.js';
 
 export function resolveTelegramChatId(chatId = '') {
   return String(chatId || config.telegram.chatId || config.telegram.allowedChatIds[0] || '').trim();
@@ -82,7 +83,7 @@ export async function sendRecordingResult(chatId, result, options = {}) {
   const targetChatId = resolveTelegramChatId(chatId);
   if (!config.telegram.botToken || !targetChatId) return false;
 
-  const summary = stripWrappingCodeFence(result.summary) || 'Summary is empty.';
+  const summary = normalizeSummaryFormatting(stripWrappingCodeFence(result.summary)) || 'Summary is empty.';
   return sendTelegramLongMessage(targetChatId, summary);
 }
 

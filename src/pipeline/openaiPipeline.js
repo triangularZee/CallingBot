@@ -10,6 +10,7 @@ import {
   transcriptionAudioFilter
 } from './audioPreprocess.js';
 import { summarizeWithGemini } from './geminiSummary.js';
+import { normalizeSummaryFormatting } from '../utils/summaryFormat.js';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -559,7 +560,7 @@ export async function summarizeTranscript(transcriptText, { title = 'meeting', n
     temperature: 0.2
   });
 
-  const summary = extractResponseText(response);
+  const summary = normalizeSummaryFormatting(extractResponseText(response));
   const summaryPath = outputPath(title, `${config.openaiSummaryModel}-summary.md`);
   await fsp.writeFile(summaryPath, summary, 'utf8');
 
