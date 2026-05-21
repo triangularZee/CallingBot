@@ -1,8 +1,14 @@
 import { openAsBlob } from 'node:fs';
+import { spawn } from 'node:child_process';
 import fsp from 'node:fs/promises';
+import path from 'node:path';
 import { config } from '../config.js';
-import { outputPath } from '../utils/files.js';
-import { preprocessAudioForTranscription } from './audioPreprocess.js';
+import { outputPath, safeSlug, timestamp } from '../utils/files.js';
+import {
+  preprocessAudioForTranscription,
+  runAudioCommand,
+  transcriptionAudioFilter
+} from './audioPreprocess.js';
 import { summarizeWithGemini } from './geminiSummary.js';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -66,6 +72,107 @@ function extractResponseText(response) {
     .join('');
 }
 
+function ffprobePath() {
+  const ffmpegPath = config.ffmpegPath || 'ffmpeg';
+  const parsed = path.parse(ffmpegPath);
+  if (parsed.name.toLowerCase() === 'ffmpeg') {
+    return path.join(parsed.dir, `${parsed.name.replace(/ffmpeg/i, 'ffprobe')}${parsed.ext}`);
+  }
+  return 'ffprobe';
+}
+
+async function audioDurationSeconds(filePath) {
+  let stdout = '';
+  await new Promise((resolve, reject) => {
+    const child = spawn(ffprobePath(), [
+      '-v',
+      'error',
+      '-show_entries',
+      'format=duration',
+      '-of',
+      'default=noprint_wrappers=1:nokey=1',
+      filePath
+    ], { stdio: ['ignore', 'pipe', 'pipe'] });
+
+    let stderr = '';
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.on('error', reject);
+    child.on('close', (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`ffprobe exited with ${code}: ${stderr}`));
+    });
+  });
+
+  const duration = Number(stdout.trim());
+  if (!Number.isFinite(duration) || duration <= 0) {
+    throw new Error(`Could not determine audio duration for ${filePath}`);
+  }
+  return duration;
+}
+
+function formatTimestamp(seconds) {
+  const value = Math.max(0, Math.floor(Number(seconds) || 0));
+  const hh = String(Math.floor(value / 3600)).padStart(2, '0');
+  const mm = String(Math.floor((value % 3600) / 60)).padStart(2, '0');
+  const ss = String(value % 60).padStart(2, '0');
+  return `${hh}:${mm}:${ss}`;
+}
+
+async function createTranscriptionChunks(filePath, {
+  title,
+  duration,
+  chunkSeconds = config.transcriptionChunkSeconds,
+  overlapSeconds = config.transcriptionChunkOverlapSeconds
+}) {
+  const safeChunkSeconds = Math.max(60, Math.min(1200, Math.trunc(Number(chunkSeconds) || 600)));
+  const safeOverlapSeconds = Math.max(0, Math.min(30, Math.trunc(Number(overlapSeconds) || 0)));
+  const chunkDir = path.join(config.outputDir, `${timestamp()}-${safeSlug(title)}-chunks`);
+  await fsp.mkdir(chunkDir, { recursive: true });
+
+  const chunks = [];
+  for (let baseStart = 0, index = 0; baseStart < duration; baseStart += safeChunkSeconds, index += 1) {
+    const hasPrevious = index > 0;
+    const hasNext = baseStart + safeChunkSeconds < duration;
+    const start = Math.max(0, baseStart - (hasPrevious ? safeOverlapSeconds : 0));
+    const end = Math.min(duration, baseStart + safeChunkSeconds + (hasNext ? safeOverlapSeconds : 0));
+    const chunkPath = path.join(chunkDir, `chunk_${String(index + 1).padStart(3, '0')}.wav`);
+
+    await runAudioCommand(config.ffmpegPath || 'ffmpeg', [
+      '-y',
+      '-hide_banner',
+      '-loglevel',
+      'error',
+      '-ss',
+      String(start),
+      '-t',
+      String(end - start),
+      '-i',
+      filePath,
+      '-af',
+      transcriptionAudioFilter,
+      '-ar',
+      '16000',
+      '-ac',
+      '1',
+      chunkPath
+    ]);
+
+    chunks.push({
+      index: index + 1,
+      start,
+      end,
+      path: chunkPath
+    });
+  }
+
+  return chunks;
+}
+
 async function callTranscription(filePath, { title, language, transcriptionModel, preprocessAudio }) {
   ensureOpenAIKey();
   const inputPath = preprocessAudio
@@ -103,7 +210,7 @@ async function callTranscription(filePath, { title, language, transcriptionModel
   });
 }
 
-export async function transcribeRecording(filePath, {
+async function transcribeRecordingSingle(filePath, {
   title = 'meeting',
   language = 'ko',
   transcriptionModel = 'gpt-4o-transcribe',
@@ -123,6 +230,93 @@ export async function transcribeRecording(filePath, {
     transcriptText,
     model: transcriptionModel
   };
+}
+
+async function transcribeRecordingChunked(filePath, {
+  title = 'meeting',
+  language = 'ko',
+  transcriptionModel = 'gpt-4o-transcribe',
+  duration
+} = {}) {
+  const chunks = await createTranscriptionChunks(filePath, { title, duration });
+  const transcriptChunks = [];
+
+  console.log(
+    `Transcribing ${formatTimestamp(duration)} audio in ${chunks.length} chunks with ${transcriptionModel}`
+  );
+
+  for (const chunk of chunks) {
+    const chunkTitle = `${title}.${transcriptionModel}.chunk-${String(chunk.index).padStart(3, '0')}`;
+    console.log(
+      `Transcribing chunk ${chunk.index}/${chunks.length}: ${formatTimestamp(chunk.start)}-${formatTimestamp(chunk.end)}`
+    );
+    const result = await transcribeRecordingSingle(chunk.path, {
+      title: chunkTitle,
+      language,
+      transcriptionModel,
+      preprocessAudio: false
+    });
+    transcriptChunks.push({
+      ...chunk,
+      transcriptPath: result.transcriptPath,
+      transcriptTextPath: result.transcriptTextPath,
+      text: result.transcriptText
+    });
+  }
+
+  const transcriptText = transcriptChunks
+    .map((chunk) => [
+      `[Chunk ${chunk.index} | ${formatTimestamp(chunk.start)}-${formatTimestamp(chunk.end)}]`,
+      chunk.text
+    ].join('\n'))
+    .join('\n\n')
+    .trim();
+
+  const transcriptPath = outputPath(title, `${transcriptionModel}.chunked-transcript.json`);
+  const transcriptTextPath = outputPath(title, `${transcriptionModel}.chunked-transcript.txt`);
+  await fsp.writeFile(
+    transcriptPath,
+    JSON.stringify({
+      text: transcriptText,
+      model: transcriptionModel,
+      duration,
+      chunkSeconds: config.transcriptionChunkSeconds,
+      overlapSeconds: config.transcriptionChunkOverlapSeconds,
+      chunks: transcriptChunks.map((chunk) => ({
+        index: chunk.index,
+        start: chunk.start,
+        end: chunk.end,
+        path: chunk.path,
+        transcriptPath: chunk.transcriptPath,
+        transcriptTextPath: chunk.transcriptTextPath
+      }))
+    }, null, 2),
+    'utf8'
+  );
+  await fsp.writeFile(transcriptTextPath, transcriptText, 'utf8');
+
+  return {
+    transcript: { text: transcriptText },
+    transcriptPath,
+    transcriptTextPath,
+    transcriptText,
+    model: transcriptionModel,
+    chunks: transcriptChunks
+  };
+}
+
+export async function transcribeRecording(filePath, {
+  title = 'meeting',
+  language = 'ko',
+  transcriptionModel = 'gpt-4o-transcribe',
+  preprocessAudio = true
+} = {}) {
+  const duration = await audioDurationSeconds(filePath);
+  const maxSeconds = Math.max(60, Number(config.transcriptionSingleMaxSeconds) || 1300);
+  if (duration > maxSeconds) {
+    return transcribeRecordingChunked(filePath, { title, language, transcriptionModel, duration });
+  }
+  return transcribeRecordingSingle(filePath, { title, language, transcriptionModel, preprocessAudio });
 }
 
 function mergeInstructions() {

@@ -24,6 +24,9 @@ export const config = {
   recordingsDir: path.resolve(rootDir, process.env.RECORDINGS_DIR ?? './recordings'),
   outputDir: path.resolve(rootDir, process.env.OUTPUT_DIR ?? './outputs'),
   ffmpegPath: process.env.FFMPEG_PATH ?? 'ffmpeg',
+  transcriptionSingleMaxSeconds: Number(process.env.TRANSCRIPTION_SINGLE_MAX_SECONDS ?? 1300),
+  transcriptionChunkSeconds: Number(process.env.TRANSCRIPTION_CHUNK_SECONDS ?? 600),
+  transcriptionChunkOverlapSeconds: Number(process.env.TRANSCRIPTION_CHUNK_OVERLAP_SECONDS ?? 8),
   audioInputDevice: process.env.AUDIO_INPUT_DEVICE ?? '',
 
   // Bot identity

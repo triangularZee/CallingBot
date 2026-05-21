@@ -107,6 +107,7 @@ npm run transcribe:all -- --dir "./recordings" --limit 3 --language ko
 ```
 
 Transcripts are saved as both JSON and plain text in `outputs/`; summaries are saved as Markdown.
+Recordings longer than `TRANSCRIPTION_SINGLE_MAX_SECONDS` are automatically split into chunks before STT. The default is 10 minute chunks with 8 seconds of overlap, which keeps 30-60 minute meetings below model duration limits while preserving boundary context.
 Set `SUMMARY_PROVIDER=gemini` if you want to switch summaries back to Google AI Studio/Gemini.
 
 ## Telegram Bot
