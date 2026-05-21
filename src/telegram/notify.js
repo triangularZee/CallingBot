@@ -24,43 +24,66 @@ export async function sendTelegramMessage(chatId, text) {
   }
 }
 
+function splitTelegramText(text, maxLength = 3600) {
+  const value = String(text ?? '');
+  if (value.length <= maxLength) return [value];
+
+  const chunks = [];
+  let current = '';
+
+  for (const line of value.split('\n')) {
+    const next = current ? `${current}\n${line}` : line;
+    if (next.length <= maxLength) {
+      current = next;
+      continue;
+    }
+
+    if (current) chunks.push(current);
+
+    if (line.length <= maxLength) {
+      current = line;
+      continue;
+    }
+
+    for (let offset = 0; offset < line.length; offset += maxLength) {
+      chunks.push(line.slice(offset, offset + maxLength));
+    }
+    current = '';
+  }
+
+  if (current) chunks.push(current);
+  return chunks;
+}
+
+export async function sendTelegramLongMessage(chatId, text, options = {}) {
+  const targetChatId = resolveTelegramChatId(chatId);
+  if (!config.telegram.botToken || !targetChatId) return false;
+
+  const chunks = splitTelegramText(text, options.maxLength ?? 3600);
+  const total = chunks.length;
+
+  for (let index = 0; index < total; index += 1) {
+    const prefix = total > 1 ? `[${index + 1}/${total}]\n` : '';
+    await sendTelegramMessage(targetChatId, `${prefix}${chunks[index]}`);
+  }
+
+  return true;
+}
+
 export async function sendRecordingResult(chatId, result, options = {}) {
   const targetChatId = resolveTelegramChatId(chatId);
   if (!config.telegram.botToken || !targetChatId) return false;
 
   const title = options.title ?? 'meeting';
-  const summary = result.summary ?? '';
-  const summaryPath = result.summaryPath ?? '';
-  const transcriptPath = result.transcriptTextPath ?? result.transcriptPath ?? '';
+  const summary = String(result.summary ?? '').trim() || '요약 결과가 비어 있습니다.';
   const lines = [
     `*${title}*`,
     options.stopReason ? `stop: ${options.stopReason}` : '',
     '',
-    summary.slice(0, 3800),
-    '',
-    summary.length > 3800 && summaryPath ? `Summary is long. File: ${summaryPath}` : summaryPath ? `File: ${summaryPath}` : ''
+    summary
   ].filter((line) => line !== '');
 
-  await sendTelegramMessage(targetChatId, lines.join('\n'));
-  const sendOptionalDocument = async (filePath, caption) => {
-    try {
-      await sendTelegramDocument(targetChatId, filePath, caption);
-    } catch (error) {
-      console.warn(`Telegram document send skipped: ${error.message}`);
-    }
-  };
-
-  if (summaryPath) {
-    await sendOptionalDocument(summaryPath, `Summary: ${title}`);
-  }
-  if (transcriptPath) {
-    await sendOptionalDocument(transcriptPath, `Transcript: ${title}`);
-  }
-  if (options.recordingPath) {
-    await sendOptionalDocument(options.recordingPath, `Recording: ${title}`);
-  }
-
-  return true;
+  return sendTelegramLongMessage(targetChatId, lines.join('\n'));
 }
 
 export async function sendTelegramDocument(chatId, filePath, caption = '') {
