@@ -10,7 +10,7 @@ import { processRecording } from './pipeline/openaiPipeline.js';
 import { runZoomBot } from './zoom/zoomBot.js';
 import { dialConference, hangupCalls } from './call/twilioCallBot.js';
 import { attachSilenceMonitor } from './call/silenceMonitor.js';
-import { sendTelegramDocument, sendTelegramMessage } from './telegram/notify.js';
+import { resolveTelegramChatId, sendRecordingResult, sendTelegramMessage } from './telegram/notify.js';
 import { createTelegramBot } from './telegram/createBot.js';
 
 await ensureDirs();
@@ -52,12 +52,13 @@ app.get('/health', (_req, res) => {
 app.post('/api/zoom', async (req, res, next) => {
   try {
     const job = zoomSchema.parse(req.body);
+    const notifyChatId = resolveTelegramChatId(job.notifyChatId);
     runZoomBot({
       ...job,
       onJoined: async ({ muteState }) => {
-        if (!job.notifyChatId) return;
+        if (!notifyChatId) return;
         await sendTelegramMessage(
-          job.notifyChatId,
+          notifyChatId,
           [
             `*${job.title}*`,
             'Zoom 접속 완료.',
@@ -67,24 +68,16 @@ app.post('/api/zoom', async (req, res, next) => {
         );
       },
       onDone: async (result) => {
-        if (!job.notifyChatId) return;
-        await sendTelegramMessage(
-          job.notifyChatId,
-          [
-            `*${job.title}*`,
-            result.stopReason ? `stop: ${result.stopReason}` : '',
-            '',
-            result.summary.slice(0, 3800),
-            '',
-            result.summary.length > 3800 ? `Summary is long. File: ${result.summaryPath}` : `File: ${result.summaryPath}`
-          ].join('\n')
-        );
-        await sendTelegramDocument(job.notifyChatId, result.recordingPath, `Zoom recording: ${job.title}`);
+        await sendRecordingResult(notifyChatId, result, {
+          title: job.title,
+          stopReason: result.stopReason,
+          recordingPath: result.recordingPath
+        });
       }
     }).catch((error) => {
       console.error('Zoom bot failed:', error);
-      if (job.notifyChatId) {
-        sendTelegramMessage(job.notifyChatId, `Zoom bot failed: ${error.message}`).catch(() => {});
+      if (notifyChatId) {
+        sendTelegramMessage(notifyChatId, `Zoom bot failed: ${error.message}`).catch(() => {});
       }
     });
     res.status(202).json({ status: 'started', ...job });
@@ -117,7 +110,7 @@ app.post('/twilio/conference-twiml', (req, res) => {
   const digits = String(req.query.digits ?? '');
   const title = String(req.query.title ?? 'phone-conference');
   const note = String(req.query.note ?? '');
-  const notifyChatId = String(req.query.notifyChatId ?? '');
+  const notifyChatId = resolveTelegramChatId(String(req.query.notifyChatId ?? ''));
   const rawSilenceTimeout = Number(req.query.silenceTimeout ?? 120);
   const silenceTimeout = Number.isFinite(rawSilenceTimeout)
     ? Math.min(Math.max(Math.trunc(rawSilenceTimeout), 1), 600)
@@ -151,7 +144,7 @@ app.post('/twilio/recording', async (req, res) => {
   try {
     const title = String(req.query.title ?? 'phone-conference');
     const note = String(req.query.note ?? '');
-    const notifyChatId = String(req.query.notifyChatId ?? '');
+    const notifyChatId = resolveTelegramChatId(String(req.query.notifyChatId ?? ''));
     const recordingUrl = req.body.RecordingUrl;
     if (!recordingUrl) return;
 
@@ -176,19 +169,7 @@ app.post('/twilio/recording', async (req, res) => {
       'utf8'
     );
 
-    if (notifyChatId) {
-      await sendTelegramMessage(
-        notifyChatId,
-        [
-          `*${title}*`,
-          '',
-          result.summary.slice(0, 3800),
-          '',
-          result.summary.length > 3800 ? `요약이 길어 일부만 전송했습니다. 파일: ${result.summaryPath}` : `파일: ${result.summaryPath}`
-        ].join('\n')
-      );
-      await sendTelegramDocument(notifyChatId, filePath, `Recording: ${title}`);
-    }
+    await sendRecordingResult(notifyChatId, result, { title, recordingPath: filePath });
   } catch (error) {
     console.error('Twilio recording processing failed:', error);
   }

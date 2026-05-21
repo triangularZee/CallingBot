@@ -4,6 +4,11 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, '..');
+const telegramAllowedChatIds = (process.env.TELEGRAM_ALLOWED_CHAT_IDS ?? process.env.TELEGRAM_CHAT_ID ?? '')
+  .split(',')
+  .map((id) => id.trim())
+  .filter(Boolean);
+const telegramChatId = (process.env.TELEGRAM_CHAT_ID ?? telegramAllowedChatIds[0] ?? '').trim();
 
 export const config = {
   rootDir,
@@ -34,9 +39,7 @@ export const config = {
   },
   telegram: {
     botToken: process.env.TELEGRAM_BOT_TOKEN ?? '',
-    allowedChatIds: (process.env.TELEGRAM_ALLOWED_CHAT_IDS ?? process.env.TELEGRAM_CHAT_ID ?? '')
-      .split(',')
-      .map((id) => id.trim())
-      .filter(Boolean)
+    chatId: telegramChatId,
+    allowedChatIds: telegramAllowedChatIds
   }
 };

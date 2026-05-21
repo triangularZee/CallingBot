@@ -126,7 +126,8 @@ TWILIO_FROM_NUMBER=+19206682520
 PUBLIC_BASE_URL=https://your-ngrok-or-domain.example
 TELEGRAM_BOT_TOKEN=...
 TELEGRAM_ALLOWED_CHAT_IDS=
-# or TELEGRAM_CHAT_ID=...
+# Default chat used for API jobs/manual transcription when notifyChatId is omitted.
+TELEGRAM_CHAT_ID=...
 ```
 
 Run the webhook server in one terminal:
@@ -147,6 +148,14 @@ If another process is already using the same bot token, prefer webhook mode:
 npm start
 npm run telegram:set-webhook
 ```
+
+Manual recording retries also send the summary/transcript to `TELEGRAM_CHAT_ID` by default:
+
+```powershell
+npm run transcribe -- --file .\recordings\meeting.wav --title meeting-title
+```
+
+Use `--no-telegram` to process locally without sending a Telegram result, or `--notify-chat-id 123456789` to override the default chat.
 
 Send this to the Telegram bot:
 
