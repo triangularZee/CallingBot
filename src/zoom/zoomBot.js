@@ -57,10 +57,14 @@ async function clickZoomAudioJoin(page) {
     () => clickButtonByName(page, /join audio by computer/i, 1500),
     () => clickButtonByName(page, /join with computer audio/i, 1200),
     () => clickButtonByName(page, /computer audio/i, 1000),
+    () => clickButtonByName(page, /컴퓨터 ?오디오/i, 1000),
     () => clickButtonByText(page, 'Join Audio by Computer', 1000),
     () => clickButtonByText(page, 'Join with Computer Audio', 1000),
+    () => clickButtonByText(page, '컴퓨터 오디오로 참가', 1000),
+    () => clickButtonByText(page, '컴퓨터 오디오로 참여', 1000),
     () => clickButtonContainingText(page, 'Join Audio by Computer'),
-    () => clickButtonContainingText(page, 'Join with Computer Audio')
+    () => clickButtonContainingText(page, 'Join with Computer Audio'),
+    () => clickButtonContainingText(page, '컴퓨터 오디오')
   ];
 
   for (const candidate of candidates) {
@@ -261,14 +265,18 @@ async function assertZoomJoinable(page) {
 async function assertZoomJoined(page) {
   await assertZoomJoinable(page);
   const text = await page.locator('body').innerText({ timeout: 3000 }).catch(() => '');
-  const stillOnMeetingInfo = /enter meeting info/i.test(text)
-    && /\bjoin\b/i.test(text)
-    && !/\bleave\b/i.test(text)
-    && !/\bparticipants\b/i.test(text);
+  const onMeetingInfoForm = /enter meeting info/i.test(text)
+    || /회의 정보를 입력/.test(text)
+    || /미팅 정보를 입력/.test(text);
+  const hasJoinButton = /\bjoin\b/i.test(text) || /\b참가\b/.test(text) || /\b참여\b/.test(text);
+  const inMeeting = /\bleave\b/i.test(text)
+    || /\bparticipants\b/i.test(text)
+    || /나가기/.test(text)
+    || /참가자/.test(text);
 
-  if (stillOnMeetingInfo) {
+  if (onMeetingInfoForm && hasJoinButton && !inMeeting) {
     const compact = text.replace(/\s+/g, ' ').trim().slice(0, 240);
-    throw new Error(`Zoom join failed: still on meeting info form. Check the meeting URL and passcode.${compact ? ` Details: ${compact}` : ''}`);
+    throw new Error(`Zoom join failed: still on meeting info form. The Join button click did not advance.${compact ? ` Details: ${compact}` : ''}`);
   }
 }
 
@@ -278,7 +286,11 @@ function isWaitingForHost(text) {
     /please wait.*host/i,
     /host has another meeting in progress/i,
     /meeting host will let you in soon/i,
-    /wait.*meeting host/i
+    /wait.*meeting host/i,
+    /호스트가 회의를 시작/,
+    /호스트를 기다리/,
+    /진행자.*기다리/,
+    /잠시.*기다려.*주세요/
   ].some((pattern) => pattern.test(text));
 }
 
@@ -359,9 +371,10 @@ async function dismissZoomPostJoinDialogs(page) {
   const candidates = [
     () => clickButtonByName(page, /^ok$/i, 500),
     () => clickButtonByText(page, 'OK', 400),
-    () => clickButtonByName(page, /^(accept|agree)$/i, 400),
-    () => clickButtonByName(page, /got it/i, 400),
-    () => clickButtonByName(page, /continue/i, 400)
+    () => clickButtonByText(page, '확인', 400),
+    () => clickButtonByName(page, /^(accept|agree|동의)$/i, 400),
+    () => clickButtonByName(page, /(got it|확인|알겠어요)/i, 400),
+    () => clickButtonByName(page, /(continue|계속)/i, 400)
   ];
 
   for (const candidate of candidates) {
@@ -562,21 +575,31 @@ export async function runZoomBot({
       // Some authenticated/browser joins do not ask for a name.
     }
 
-    // Click Join with humanized delays
-    const joinBtn = page.getByRole('button', { name: /^join$/i }).first();
+    // Click Join (English "Join" or Korean "참가"/"참여"/"입장") with humanized delays
+    const joinNameRegex = /^(join|참가|참여|입장)$/i;
+    const joinBtn = page.getByRole('button', { name: joinNameRegex }).first();
+    let joinClicked = false;
     try {
       await joinBtn.waitFor({ state: 'visible', timeout: 5000 });
       await humanClickLocator(page, joinBtn);
+      joinClicked = true;
     } catch {
-      await clickButtonByName(page, /^join$/i, 5000);
+      joinClicked = await clickButtonByName(page, joinNameRegex, 5000)
+        || await clickButtonByText(page, '참가', 2000)
+        || await clickButtonByText(page, 'Join', 2000)
+        || await clickButtonContainingText(page, '참가')
+        || await clickButtonContainingText(page, 'Join');
+    }
+    if (!joinClicked) {
+      console.warn('Zoom join button not found by any selector — meeting may not be joined.');
     }
     await humanWait(page, 1500, 2800);
     await assertZoomJoinable(page);
     await clickZoomAudioJoin(page);
     await humanWait(page, 400, 900);
     await assertZoomJoinable(page);
-    await clickButtonByName(page, /continue/i, 1000);
-    await clickButtonByName(page, /got it/i, 1000);
+    await clickButtonByName(page, /(continue|계속)/i, 1000);
+    await clickButtonByName(page, /(got it|확인|알겠어요)/i, 1000);
     await settleZoomPostJoinDialogs(page);
     await saveZoomDebug(page, title, 'after-join');
     await assertZoomJoined(page);
