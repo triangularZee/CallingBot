@@ -66,6 +66,20 @@ function scheduleMenuKeyboard() {
   };
 }
 
+function scheduleCancelKeyboard(jobs) {
+  return {
+    reply_markup: {
+      keyboard: [
+        ...jobs.map((job) => [{ text: shortId(job.id) }]),
+        [{ text: '/cancel' }]
+      ],
+      resize_keyboard: true,
+      one_time_keyboard: false,
+      selective: true
+    }
+  };
+}
+
 function forceReply() {
   return {
     reply_markup: {
@@ -443,7 +457,7 @@ export async function showScheduledJobs(ctx) {
     '',
     jobs.map(formatScheduledJob).join('\n\n---\n\n'),
     '',
-    '예약 취소: /call cancel <id>'
+    '예약 취소를 누르면 취소할 예약 id를 선택할 수 있습니다.'
   ].join('\n'), scheduleMenuKeyboard());
 }
 
@@ -510,12 +524,12 @@ export async function startScheduleCancel(ctx) {
   }
   setSession(ctx, 'cancel_job_id', {});
   await ctx.reply([
-    '취소할 예약 id를 입력해주세요.',
+    '취소할 예약 id를 아래 버튼에서 선택하거나 직접 입력해주세요.',
     '',
     jobs.map(formatScheduledJob).join('\n\n---\n\n'),
     '',
     '취소하지 않으려면 /cancel'
-  ].join('\n'), forceReply());
+  ].join('\n'), scheduleCancelKeyboard(jobs));
 }
 
 export async function startCallWizard(ctx) {
@@ -606,7 +620,6 @@ export async function handleCallMenuText(ctx) {
   }
   if (['3', '3예약목록', '예약목록', 'schedule', 'schedules'].includes(choice)) {
     await showScheduledJobs(ctx);
-    await ask(ctx, 'type');
     return true;
   }
   if (['예약취소'].includes(choice)) {
