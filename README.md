@@ -40,7 +40,7 @@ Outputs:
 - `outputs/*-transcript.txt`
 - `outputs/*-gemini-summary.md`
 
-Zoom recording stops passively when the meeting ends, the Zoom page closes, or the process is stopped with `Ctrl+C`. It does not stop on silence or elapsed duration.
+Zoom recording stops passively when the meeting ends, the Zoom page closes, or the process is stopped with `Ctrl+C`. It also stops after 120 seconds of continuous silence by default. Override with `ZOOM_SILENCE_TIMEOUT_SECONDS`, or pass `silenceTimeout` / `--silence-timeout`; set it to `0` to disable silence exit.
 On Linux, `npm run start:audio` routes browser output to `zoom_sink` for recording and gives Zoom Web Client a silent PulseAudio virtual microphone. This prevents Zoom's "Cannot detect your microphone" state without relying on Chromium's finite fake audio file. Set `ZOOM_USE_FAKE_MIC_FILE=true` only as a fallback.
 
 ## Zoom Desktop Recorder
@@ -55,6 +55,7 @@ Useful options:
 
 ```powershell
 npm run zoom:desktop -- --url "https://zoom.us/j/..." --title "weekly-sync" --duration 1800
+npm run zoom:desktop -- --url "https://zoom.us/j/..." --title "weekly-sync" --silence-timeout 120
 npm run zoom:desktop -- --url "https://zoom.us/j/..." --title "weekly-sync" --open false
 npm run zoom:desktop -- --url "https://zoom.us/j/..." --title "weekly-sync" --transcribe false
 ```
