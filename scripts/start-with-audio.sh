@@ -20,29 +20,40 @@ mkdir -p "$ASSETS_DIR" "$STATE_DIR"
 
 log() { echo "[start-with-audio] $*"; }
 
-# Match only real ffmpeg processes for a given identifier, not the script
-# that's looking for them. Without this guard, `pgrep -f ambient_zoom_mic`
-# matches start-with-audio.sh's own command line during startup and
-# falsely reports "already running" while no ffmpeg is actually live.
-is_ffmpeg_running() {
-  local identifier="$1"
-  pgrep -fa ffmpeg 2>/dev/null | grep -q "$identifier"
+# Track watchdog processes by PID file. Each watchdog writes its own PID
+# on startup; this script checks `kill -0 <pid>` before spawning a new
+# one. This avoids the pgrep/argv false-positive that happens because
+# the script body and systemd-run's argv both literally contain the
+# words "ffmpeg" and "ambient_zoom_mic".
+WATCHDOG_DIR="${WATCHDOG_DIR:-/tmp/callingbot}"
+mkdir -p "$WATCHDOG_DIR"
+
+watchdog_alive() {
+  local pidfile="$1"
+  [ -f "$pidfile" ] || return 1
+  local pid
+  pid="$(cat "$pidfile" 2>/dev/null)"
+  [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
 }
 
 # Spawn a watchdog outside the systemd service cgroup so it survives
-# `systemctl restart`. systemd-run --user --scope places it in its own
-# transient scope unit; fall back to setsid + nohup if systemd-run is
-# unavailable. Either way, KillMode=control-group on callingbot.service
-# can no longer reap the watchdog.
+# `systemctl restart`. systemd-run --user --scope places the child in
+# its own transient scope unit (separate cgroup). Without that the
+# default KillMode=control-group on callingbot.service would reap the
+# watchdog along with everything else. Falls back to setsid+nohup when
+# systemd-run is unavailable.
 spawn_detached() {
   local name="$1"
-  shift
+  local pidfile="$2"
+  shift 2
+  local payload="echo \$\$ > $pidfile; trap 'rm -f $pidfile' EXIT; $*"
   if command -v systemd-run >/dev/null 2>&1; then
-    systemd-run --user --quiet --scope --unit="${name}-$(date +%s)" \
-      --collect \
-      bash -c "$*" >/dev/null 2>&1 &
+    systemd-run --user --quiet --scope --collect \
+      --unit="callingbot-${name}-$(date +%s)" \
+      bash -c "$payload" >/dev/null 2>&1 &
+    disown 2>/dev/null || true
   else
-    setsid nohup bash -c "$*" >/dev/null 2>&1 < /dev/null &
+    setsid nohup bash -c "$payload" >/dev/null 2>&1 < /dev/null &
     disown 2>/dev/null || true
   fi
 }
@@ -86,9 +97,11 @@ AMBIENT_FILE="${ZOOM_AMBIENT_FILE:-}"
 ENABLE_AMBIENT="${ZOOM_ENABLE_AMBIENT_MIC:-true}"
 AMBIENT_RESPAWN_DELAY="${ZOOM_AMBIENT_RESPAWN_DELAY:-3}"
 
+AMBIENT_PIDFILE="${WATCHDOG_DIR}/ambient.pid"
+
 if [ "$ENABLE_AMBIENT" = "true" ]; then
-  if is_ffmpeg_running "ambient_zoom_mic"; then
-    log "ambient mic ffmpeg already running"
+  if watchdog_alive "$AMBIENT_PIDFILE"; then
+    log "ambient mic watchdog already running (pid $(cat $AMBIENT_PIDFILE))"
   else
     if [ -n "$AMBIENT_FILE" ] && [ -f "$AMBIENT_FILE" ]; then
       log "starting ambient mic watchdog from file: $AMBIENT_FILE"
@@ -98,15 +111,14 @@ if [ "$ENABLE_AMBIENT" = "true" ]; then
       # No `duration=` ⇒ infinite source. Watchdog also respawns on crash.
       AMBIENT_INPUT_ARGS="-f lavfi -i anoisesrc=color=brown:amplitude=${AMBIENT_AMPLITUDE}"
     fi
-    spawn_detached "callingbot-ambient" "
+    spawn_detached "ambient" "$AMBIENT_PIDFILE" "
       export PULSE_SINK=zoom_mic_sink
-      # ambient_zoom_mic_watchdog (identifier for pgrep)
       while true; do
         ffmpeg -hide_banner -loglevel error ${AMBIENT_INPUT_ARGS} \
           -ac 1 -ar 48000 \
           -f pulse -device zoom_mic_sink ambient_zoom_mic
         ec=\$?
-        echo \"[ambient_zoom_mic_watchdog] ffmpeg exited with \$ec, respawning in ${AMBIENT_RESPAWN_DELAY}s\" >&2
+        echo \"[ambient watchdog] ffmpeg exited with \$ec, respawning in ${AMBIENT_RESPAWN_DELAY}s\" >&2
         sleep ${AMBIENT_RESPAWN_DELAY}
       done
     "
@@ -138,9 +150,10 @@ if [ "$ENABLE_CAMERA" = "true" ]; then
     fi
   fi
 
+  CAMERA_PIDFILE="${WATCHDOG_DIR}/camera.pid"
   if [ -e "$CAMERA_DEVICE" ]; then
-    if is_ffmpeg_running "v2l_zoom_cam"; then
-      log "virtual camera ffmpeg already running"
+    if watchdog_alive "$CAMERA_PIDFILE"; then
+      log "virtual camera watchdog already running (pid $(cat $CAMERA_PIDFILE))"
     else
       CAMERA_RESPAWN_DELAY="${ZOOM_CAMERA_RESPAWN_DELAY:-3}"
       CAMERA_INPUT_ARGS=""
@@ -154,14 +167,13 @@ if [ "$ENABLE_CAMERA" = "true" ]; then
         log "no camera source configured (set ZOOM_VIRTUAL_CAMERA_FILE or place $CAMERA_FALLBACK_IMAGE)"
       fi
       if [ -n "$CAMERA_INPUT_ARGS" ]; then
-        spawn_detached "callingbot-camera" "
-          # v2l_zoom_cam_watchdog (identifier for pgrep)
+        spawn_detached "camera" "$CAMERA_PIDFILE" "
           while true; do
             ffmpeg -hide_banner -loglevel error ${CAMERA_INPUT_ARGS} \
               -f v4l2 \"${CAMERA_DEVICE}\" \
               -metadata title=v2l_zoom_cam
             ec=\$?
-            echo \"[v2l_zoom_cam_watchdog] ffmpeg exited with \$ec, respawning in ${CAMERA_RESPAWN_DELAY}s\" >&2
+            echo \"[camera watchdog] ffmpeg exited with \$ec, respawning in ${CAMERA_RESPAWN_DELAY}s\" >&2
             sleep ${CAMERA_RESPAWN_DELAY}
           done
         "
