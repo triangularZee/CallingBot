@@ -1,4 +1,4 @@
-function normalizePhone(value) {
+export function normalizePhone(value) {
   const cleaned = String(value).replace(/[^\d+]/g, '');
   if (cleaned.startsWith('+')) return cleaned;
   if (cleaned.startsWith('010')) return `+82${cleaned.slice(1)}`;
@@ -40,6 +40,8 @@ export function parseCallCommand(text) {
   return {
     to: normalizePhone(to),
     title,
+    note: entries.note ?? entries.memo ?? entries['메모'] ?? '',
+    silenceTimeout: entries.silencetimeout ? Number(entries.silencetimeout) : 120,
     digits: digits ?? ''
   };
 }

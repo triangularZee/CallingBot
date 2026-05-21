@@ -162,20 +162,17 @@ Send this to the Telegram bot:
 
 ```text
 /call
-to=+18005551234
-meeting=123456789
-password=987654
-title=251212_FY4Q25 Broadcom
 ```
 
-Or provide exact DTMF:
+The bot opens a button menu:
 
 ```text
-/call
-to=+18005551234
-digits=ww123456789#ww987654#
-title=251212_FY4Q25 Broadcom
+1. 일반 전화        2. Zoom link
+3. 예약 목록        4. 통화 내역
+/cancel
 ```
+
+After selecting `3. 예약 목록`, the next keyboard includes `예약 취소`. You can also use `/call schedule`, `/call cancel <id>`, and `/call history`.
 
 The summary format is optimized for earnings-call notes:
 
