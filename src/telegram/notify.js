@@ -55,16 +55,24 @@ function splitTelegramText(text, maxLength = 3600) {
   return chunks;
 }
 
+function stripWrappingCodeFence(text) {
+  let value = String(text ?? '').trim();
+  const fenced = value.match(/^```[a-zA-Z0-9_-]*\s*\n([\s\S]*?)\n```$/);
+  if (fenced) return fenced[1].trim();
+
+  value = value.replace(/^```[a-zA-Z0-9_-]*\s*\r?\n/, '');
+  value = value.replace(/\r?\n```$/, '');
+  return value.trim();
+}
+
 export async function sendTelegramLongMessage(chatId, text, options = {}) {
   const targetChatId = resolveTelegramChatId(chatId);
   if (!config.telegram.botToken || !targetChatId) return false;
 
   const chunks = splitTelegramText(text, options.maxLength ?? 3600);
-  const total = chunks.length;
 
-  for (let index = 0; index < total; index += 1) {
-    const prefix = total > 1 ? `[${index + 1}/${total}]\n` : '';
-    await sendTelegramMessage(targetChatId, `${prefix}${chunks[index]}`);
+  for (const chunk of chunks) {
+    await sendTelegramMessage(targetChatId, chunk);
   }
 
   return true;
@@ -74,16 +82,8 @@ export async function sendRecordingResult(chatId, result, options = {}) {
   const targetChatId = resolveTelegramChatId(chatId);
   if (!config.telegram.botToken || !targetChatId) return false;
 
-  const title = options.title ?? 'meeting';
-  const summary = String(result.summary ?? '').trim() || '요약 결과가 비어 있습니다.';
-  const lines = [
-    `*${title}*`,
-    options.stopReason ? `stop: ${options.stopReason}` : '',
-    '',
-    summary
-  ].filter((line) => line !== '');
-
-  return sendTelegramLongMessage(targetChatId, lines.join('\n'));
+  const summary = stripWrappingCodeFence(result.summary) || 'Summary is empty.';
+  return sendTelegramLongMessage(targetChatId, summary);
 }
 
 export async function sendTelegramDocument(chatId, filePath, caption = '') {
