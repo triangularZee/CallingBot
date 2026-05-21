@@ -10,6 +10,9 @@ const joinDelaySeconds = args['join-delay']
   ? Number(args['join-delay'])
   : Number(args.joinDelay ?? 20);
 const durationSeconds = args.duration ? Number(args.duration) : 0;
+const silenceTimeout = args['silence-timeout']
+  ? Number(args['silence-timeout'])
+  : Number(args.silenceTimeout ?? undefined);
 const openClient = args.open !== 'false';
 const autoTranscribe = args.transcribe !== 'false';
 
@@ -20,6 +23,7 @@ const result = await runZoomDesktopRecorder({
   note,
   joinDelaySeconds,
   durationSeconds,
+  ...(Number.isFinite(silenceTimeout) ? { silenceTimeout } : {}),
   openClient,
   autoTranscribe
 });

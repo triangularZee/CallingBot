@@ -452,6 +452,7 @@ export async function runZoomBot({
   botName,
   title = 'zoom-meeting',
   note = '',
+  silenceTimeout = config.zoomSilenceTimeoutSeconds,
   autoTranscribe = true,
   onJoined = null,
   onDone = null
@@ -490,7 +491,14 @@ export async function runZoomBot({
 
   function startRecorder(label = 'join-submitted') {
     if (recorder) return;
-    recorder = startFfmpegRecorder(outputFile);
+    recorder = startFfmpegRecorder(outputFile, {
+      silenceTimeout,
+      onSilence: () => {
+        stop('silence-timeout').catch((error) => {
+          console.error('Zoom silence-timeout stop failed:', error);
+        });
+      }
+    });
     recordingDebugTimer = setTimeout(() => {
       saveZoomDebug(page, title, 'recording-20s').catch((error) => {
         console.warn(`Zoom recording debug screenshot failed: ${error.message}`);

@@ -29,6 +29,7 @@ const zoomSchema = z.object({
   botName: z.string().trim().min(1).max(80).optional(),
   title: z.string().default('zoom-meeting'),
   note: z.string().default(''),
+  silenceTimeout: z.coerce.number().int().min(0).max(600).default(config.zoomSilenceTimeoutSeconds),
   notifyChatId: z.string().default('')
 });
 

@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import os from 'node:os';
+import { config } from '../config.js';
 import { recordingPath } from '../utils/files.js';
 import { processRecording } from '../pipeline/openaiPipeline.js';
 import { startFfmpegRecorder } from './ffmpegRecorder.js';
@@ -38,6 +39,7 @@ export async function runZoomDesktopRecorder({
   note = '',
   joinDelaySeconds = 20,
   durationSeconds = 0,
+  silenceTimeout = config.zoomSilenceTimeoutSeconds,
   openClient = true,
   autoTranscribe = true
 }) {
@@ -51,28 +53,50 @@ export async function runZoomDesktopRecorder({
     await sleep(waitSeconds * 1000);
   }
 
-  const recorder = startFfmpegRecorder(outputFile);
-  console.log(`Zoom desktop recording started: ${outputFile}`);
+  let stopped = false;
+  let durationTimer = null;
+  let resolveFinished;
+  const finished = new Promise((resolve) => {
+    resolveFinished = resolve;
+  });
 
   async function stop(reason = 'manual') {
+    if (stopped) return null;
+    stopped = true;
+    if (durationTimer) clearTimeout(durationTimer);
     await recorder.stop(reason);
     if (!autoTranscribe) {
-      return { recordingPath: outputFile, stopReason: reason };
+      const result = { recordingPath: outputFile, stopReason: reason };
+      resolveFinished(result);
+      return result;
     }
     const processed = await processRecording(outputFile, { title, note });
-    return { recordingPath: outputFile, stopReason: reason, ...processed };
+    const result = { recordingPath: outputFile, stopReason: reason, ...processed };
+    resolveFinished(result);
+    return result;
   }
+
+  const recorder = startFfmpegRecorder(outputFile, {
+    silenceTimeout,
+    onSilence: () => {
+      stop('silence-timeout').catch((error) => {
+        console.error('Zoom desktop silence-timeout stop failed:', error);
+      });
+    }
+  });
+  console.log(`Zoom desktop recording started: ${outputFile}`);
 
   const seconds = Math.max(0, Math.trunc(Number(durationSeconds) || 0));
   if (seconds > 0) {
-    await sleep(seconds * 1000);
-    return stop('duration-elapsed');
+    durationTimer = setTimeout(() => {
+      stop('duration-elapsed').catch((error) => {
+        console.error('Zoom desktop duration stop failed:', error);
+      });
+    }, seconds * 1000);
   }
 
-  return new Promise((resolve) => {
-    process.once('SIGINT', async () => {
-      const result = await stop('manual');
-      resolve(result);
-    });
+  process.once('SIGINT', async () => {
+    await stop('manual');
   });
+  return finished;
 }

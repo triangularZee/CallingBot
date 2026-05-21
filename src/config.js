@@ -50,6 +50,7 @@ export const config = {
   // Audio recording / playback
   zoomSilentMicSeconds: Number(process.env.ZOOM_SILENT_MIC_SECONDS ?? 8 * 60 * 60),
   zoomUseFakeMicFile: (process.env.ZOOM_USE_FAKE_MIC_FILE ?? 'false').toLowerCase() === 'true',
+  zoomSilenceTimeoutSeconds: Number(process.env.ZOOM_SILENCE_TIMEOUT_SECONDS ?? 120),
   zoomSilenceNoiseDb: Number(process.env.ZOOM_SILENCE_NOISE_DB ?? -30),
   zoomRecordGainDb: Number(process.env.ZOOM_RECORD_GAIN_DB ?? 24),
   zoomHeadless: (process.env.ZOOM_HEADLESS ?? 'false').toLowerCase() === 'true',
