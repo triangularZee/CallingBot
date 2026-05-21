@@ -12,6 +12,14 @@ function parseList(value) {
     .filter(Boolean);
 }
 
+// Resolve a path env var against the repo root if it's relative.
+// Absolute paths are returned as-is. This keeps "login saves here, bot loads
+// from there" symmetric regardless of which working directory invoked Node.
+function resolveRepoPath(value, fallback) {
+  const raw = String(value ?? '').trim() || fallback;
+  return path.isAbsolute(raw) ? raw : path.resolve(rootDir, raw);
+}
+
 export const config = {
   rootDir,
   port: Number(process.env.PORT ?? 3000),
@@ -44,8 +52,10 @@ export const config = {
   // Stealth / browser
   zoomUseStealth: (process.env.ZOOM_USE_STEALTH ?? 'true').toLowerCase() === 'true',
   zoomChannel: process.env.ZOOM_CHROME_CHANNEL ?? '',
-  zoomStorageStatePath: process.env.ZOOM_STORAGE_STATE_PATH
-    ?? path.resolve(rootDir, './state/zoom-storage-state.json'),
+  zoomStorageStatePath: resolveRepoPath(
+    process.env.ZOOM_STORAGE_STATE_PATH,
+    './state/zoom-storage-state.json'
+  ),
   zoomUserAgent: process.env.ZOOM_USER_AGENT ?? '',
   zoomLocale: process.env.ZOOM_LOCALE ?? 'ko-KR',
   zoomTimezoneId: process.env.ZOOM_TIMEZONE_ID ?? 'Asia/Seoul',

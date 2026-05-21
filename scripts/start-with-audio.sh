@@ -44,35 +44,45 @@ pactl set-default-sink zoom_sink >/dev/null
 pactl set-default-source "$ZOOM_MIC_SOURCE" >/dev/null
 
 # ---------------- Ambient mic noise ----------------
-# Stream very low-volume brown noise into zoom_mic_sink. Zoom WebRTC's voice
-# activity / "is there a microphone?" check tolerates this as a real mic.
+# Stream very low-volume brown noise into zoom_mic_sink so Zoom WebRTC's
+# voice-activity / "is there a microphone?" check sees a non-silent device.
 # Volume is configurable via ZOOM_AMBIENT_AMPLITUDE (default 0.004, ~ -48 dBFS).
+#
+# The ffmpeg input is *infinite* (no `duration=` set on anoisesrc, and the
+# file path branch uses `-stream_loop -1`). On top of that we wrap each
+# ffmpeg invocation in a watchdog loop so that any crash/disconnect is
+# auto-respawned after a short backoff. The watchdog process itself is
+# tagged `ambient_zoom_mic_watchdog` so pgrep can detect either the
+# watchdog or the running ffmpeg.
 AMBIENT_AMPLITUDE="${ZOOM_AMBIENT_AMPLITUDE:-0.004}"
 AMBIENT_FILE="${ZOOM_AMBIENT_FILE:-}"
 ENABLE_AMBIENT="${ZOOM_ENABLE_AMBIENT_MIC:-true}"
+AMBIENT_RESPAWN_DELAY="${ZOOM_AMBIENT_RESPAWN_DELAY:-3}"
 
 if [ "$ENABLE_AMBIENT" = "true" ]; then
   if pgrep -f "ambient_zoom_mic" >/dev/null 2>&1; then
     log "ambient mic stream already running"
   else
     if [ -n "$AMBIENT_FILE" ] && [ -f "$AMBIENT_FILE" ]; then
-      log "starting ambient mic from file: $AMBIENT_FILE"
-      ( PULSE_SINK=zoom_mic_sink \
-        nohup ffmpeg -hide_banner -loglevel error -re -stream_loop -1 \
-          -i "$AMBIENT_FILE" \
-          -filter:a "volume=${AMBIENT_AMPLITUDE}" \
-          -ac 1 -ar 48000 \
-          -f pulse -device zoom_mic_sink ambient_zoom_mic \
-          >/dev/null 2>&1 & ) || log "ambient mic file stream failed"
+      log "starting ambient mic watchdog from file: $AMBIENT_FILE"
+      AMBIENT_INPUT_ARGS="-re -stream_loop -1 -i \"$AMBIENT_FILE\" -filter:a volume=${AMBIENT_AMPLITUDE}"
     else
-      log "starting ambient mic from brown noise (amplitude=${AMBIENT_AMPLITUDE})"
-      ( PULSE_SINK=zoom_mic_sink \
-        nohup ffmpeg -hide_banner -loglevel error \
-          -f lavfi -i "anoisesrc=color=brown:amplitude=${AMBIENT_AMPLITUDE}:duration=86400" \
-          -ac 1 -ar 48000 \
-          -f pulse -device zoom_mic_sink ambient_zoom_mic \
-          >/dev/null 2>&1 & ) || log "ambient mic brown noise failed"
+      log "starting ambient mic watchdog from brown noise (amplitude=${AMBIENT_AMPLITUDE})"
+      # No `duration=` ⇒ infinite source.
+      AMBIENT_INPUT_ARGS="-f lavfi -i anoisesrc=color=brown:amplitude=${AMBIENT_AMPLITUDE}"
     fi
+    ( PULSE_SINK=zoom_mic_sink \
+      nohup bash -c "
+        # ambient_zoom_mic_watchdog (identifier for pgrep)
+        while true; do
+          ffmpeg -hide_banner -loglevel error ${AMBIENT_INPUT_ARGS} \
+            -ac 1 -ar 48000 \
+            -f pulse -device zoom_mic_sink ambient_zoom_mic
+          ec=\$?
+          echo \"[ambient_zoom_mic_watchdog] ffmpeg exited with \$ec, respawning in ${AMBIENT_RESPAWN_DELAY}s\" >&2
+          sleep ${AMBIENT_RESPAWN_DELAY}
+        done
+      " >/dev/null 2>&1 & ) || log "ambient mic watchdog failed to spawn"
   fi
 fi
 
@@ -105,25 +115,29 @@ if [ "$ENABLE_CAMERA" = "true" ]; then
     if pgrep -f "v2l_zoom_cam" >/dev/null 2>&1; then
       log "virtual camera stream already running"
     else
+      CAMERA_RESPAWN_DELAY="${ZOOM_CAMERA_RESPAWN_DELAY:-3}"
+      CAMERA_INPUT_ARGS=""
       if [ -n "$CAMERA_SOURCE_FILE" ] && [ -f "$CAMERA_SOURCE_FILE" ]; then
-        log "streaming $CAMERA_SOURCE_FILE -> $CAMERA_DEVICE"
-        ( nohup ffmpeg -hide_banner -loglevel error -re -stream_loop -1 \
-            -i "$CAMERA_SOURCE_FILE" \
-            -vf "scale=1280:720,format=yuv420p" \
-            -f v4l2 "$CAMERA_DEVICE" \
-            -metadata title=v2l_zoom_cam \
-            >/dev/null 2>&1 & ) || log "camera ffmpeg failed"
+        log "starting virtual camera watchdog from $CAMERA_SOURCE_FILE -> $CAMERA_DEVICE"
+        CAMERA_INPUT_ARGS="-re -stream_loop -1 -i \"$CAMERA_SOURCE_FILE\" -vf scale=1280:720,format=yuv420p"
       elif [ -f "$CAMERA_FALLBACK_IMAGE" ]; then
-        log "streaming still image $CAMERA_FALLBACK_IMAGE -> $CAMERA_DEVICE"
-        ( nohup ffmpeg -hide_banner -loglevel error -loop 1 \
-            -i "$CAMERA_FALLBACK_IMAGE" \
-            -vf "scale=1280:720,format=yuv420p" \
-            -r 15 \
-            -f v4l2 "$CAMERA_DEVICE" \
-            -metadata title=v2l_zoom_cam \
-            >/dev/null 2>&1 & ) || log "camera image ffmpeg failed"
+        log "starting virtual camera watchdog from still image $CAMERA_FALLBACK_IMAGE -> $CAMERA_DEVICE"
+        CAMERA_INPUT_ARGS="-loop 1 -i \"$CAMERA_FALLBACK_IMAGE\" -vf scale=1280:720,format=yuv420p -r 15"
       else
         log "no camera source configured (set ZOOM_VIRTUAL_CAMERA_FILE or place $CAMERA_FALLBACK_IMAGE)"
+      fi
+      if [ -n "$CAMERA_INPUT_ARGS" ]; then
+        ( nohup bash -c "
+          # v2l_zoom_cam_watchdog (identifier for pgrep)
+          while true; do
+            ffmpeg -hide_banner -loglevel error ${CAMERA_INPUT_ARGS} \
+              -f v4l2 \"${CAMERA_DEVICE}\" \
+              -metadata title=v2l_zoom_cam
+            ec=\$?
+            echo \"[v2l_zoom_cam_watchdog] ffmpeg exited with \$ec, respawning in ${CAMERA_RESPAWN_DELAY}s\" >&2
+            sleep ${CAMERA_RESPAWN_DELAY}
+          done
+        " >/dev/null 2>&1 & ) || log "camera watchdog failed to spawn"
       fi
     fi
   else

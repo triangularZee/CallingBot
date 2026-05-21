@@ -55,14 +55,40 @@ export async function runZoomLogin({
   console.log('Please sign in to your Zoom Pro bot account in the opened browser window.');
   console.log('After you reach the Zoom profile/dashboard, return here and press Enter.');
 
-  if (waitForUserMs > 0) {
-    await page.waitForTimeout(waitForUserMs);
-  } else {
-    await waitForEnter('Press Enter once signed in... ');
+  try {
+    if (waitForUserMs > 0) {
+      await page.waitForTimeout(waitForUserMs);
+    } else {
+      await waitForEnter('Press Enter once signed in... ');
+    }
+  } catch (error) {
+    await context.close().catch(() => {});
+    await browser.close().catch(() => {});
+    throw error;
   }
 
-  if (!(await looksAuthenticated(context))) {
-    console.warn('No Zoom session cookies detected. Saving storageState anyway; verify by retrying the bot.');
+  const authenticated = await looksAuthenticated(context).catch(() => false);
+
+  if (!authenticated) {
+    // Never overwrite an existing good storageState with an unauthenticated
+    // session. If the user closed the browser mid-flow, or hit Google's
+    // automation guard, surface that as a hard failure instead of silently
+    // saving a useless state file.
+    let existingNote = '';
+    try {
+      const stats = await fsp.stat(storageStatePath);
+      existingNote = ` Existing storageState at ${storageStatePath} (${stats.size} bytes) was kept.`;
+    } catch {
+      // No existing file — nothing to preserve.
+    }
+    await context.close().catch(() => {});
+    await browser.close().catch(() => {});
+    throw new Error(
+      `Zoom login was not completed: no _zm_ssid / cred cookies found for ${AUTHENTICATED_HOSTS.join(', ')}.`
+      + ' storageState was NOT saved.'
+      + ' Re-run `npm run zoom:login`, sign in fully, and confirm you reach the Zoom dashboard before exiting.'
+      + existingNote
+    );
   }
 
   await ensureDir(storageStatePath);
